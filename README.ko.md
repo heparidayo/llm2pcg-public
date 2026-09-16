@@ -8,13 +8,12 @@
 
 생성 결과는 **브라우저(Three.js)와 Unity 6**에서 확인할 수 있으며, **Unreal Engine 연동도 지원 예정**입니다. 
 
-![노을 하늘과 상세 나무 에셋을 적용한 중앙 산 숲](Media/Showcase/hero-seed234-forest.png)
+![상세 나무와 구름 스카이박스를 적용한 LLM2PCG Forest — Seed 234, Unity 시연](Media/Showcase/hero-seed234-forest.png)
+촬영: `2026-09-13` · Unity `6000.5.10f1` · Seed `234` · `128×128` · `DefaultForest` · water threshold `.20` · noise octaves `4` · clearing radius `14` · vegetation distance/max `4/600` · elevation scale/frequency `6/.035` · 기본 visual settings · `Surface + props` · world hash `5979C289` · [정확한 요청 JSON](Shared/Examples/showcase-seed234-forest-20260913.json)
 
-**자연어 개발 시연 · 중앙에 큰 산이 있는 숲.** 2026-09-16 · Unity `6000.5.10f1` · seed `234` · 128×128 · world hash `AD86B217`. 활엽수·벚꽃·침엽수 에셋에 private `forest.presentation` 프로필을 사용했습니다. 카메라 위치 `(103,17,17)`, 회전 `(355.378,320.906,0)`, perspective FOV `60°`, 1920×1080, HUD 숨김.
+카메라: `1920×1080`, perspective FOV `60°`, 위치 `(64,9,42)`, 회전 `(2,335,0)`, UI 숨김. 외관: `forest.default` 프로필, visual layout hash `773E2BD3`, 파노라마 구름 스카이박스(회전 `110°`, 노출 `1.13`).
 
-![같은 숲의 가까운 기본 사선 프리뷰](Media/Showcase/forest-mountain-overview.png)
-
-두 번째 사진은 같은 월드의 기본 프리뷰입니다. 원본 나무·스카이박스·개발 씬은 공개 저장소에 포함하지 않습니다. 이 사진은 private v3의 산 지형 확장으로 촬영했으며, 현재 공개 v3는 neutral layout만 허용합니다. 공개본의 공간 생성은 아래 **실행 가능한 v4 산 예제**를 사용하세요. 월드 데이터 해시는 렌더 이미지의 일치를 뜻하지 않습니다.
+> 사진의 상용 에셋·스카이박스·개발용 씬은 이 저장소에 포함되지 않습니다. 공개 데모는 외부 에셋 없이 기본 도형으로 실행할 수 있습니다. 이 사진은 v3 `forest-biome@1` 경로로 촬영했으며 v4 예제는 별도 경로를 사용합니다. 같은 화면을 재현하려면 일치하는 생성기 구현·에셋·렌더링 설정이 필요합니다. world hash는 이미지 자체의 일치를 의미하지 않습니다.
 
 ## 아키텍처
 
@@ -46,7 +45,7 @@ Direct JSON / MCP --> Validated JSON + Seed
 
 ## 생성 예시
 
-아래는 이전 단계의 실제 Unity 시연입니다. 이미지의 시각 에셋·재질·시연 씬은 이 저장소에 포함하지 않으며, clone 후 실행하는 기본 데모는 간단한 도형 기반으로 표시됩니다. 아래 이미지는 다양한 생성 결과의 예시이며, 모든 자연어 조건을 완전히 충족했다는 평가 자료는 아닙니다.
+상용 에셋 미적용시에 실제 Unity 시연입니다. 이미지의 시각 에셋·재질·시연 씬은 이 저장소에 포함하지 않으며, clone 후 실행하는 기본 데모는 간단한 도형 기반으로 표시됩니다. 아래 이미지는 다양한 생성 결과의 예시이며, 모든 자연어 조건을 완전히 충족했다는 평가 자료는 아닙니다.
 
 | 혼합림 | 벚꽃 숲 |
 | --- | --- |

@@ -8,13 +8,12 @@ The same resolved request, seed and generator version always reproduce the same 
 
 Results can be viewed in a **browser (Three.js) or Unity 6**, with **Unreal Engine integration planned**.
 
-![Detailed forest around a central mountain under a sunset sky](Media/Showcase/hero-seed234-forest.png)
+![LLM2PCG Forest with detailed trees and a cloud skybox — Seed 234, Unity showcase](Media/Showcase/hero-seed234-forest.png)
+Capture: `2026-09-13` · Unity `6000.5.10f1` · seed `234` · `128×128` · `DefaultForest` · water threshold `.20` · noise octaves `4` · clearing radius `14` · vegetation distance/max `4/600` · elevation scale/frequency `6/.035` · default visual settings · `Surface + props` · world hash `5979C289` · [Exact request JSON](Shared/Examples/showcase-seed234-forest-20260913.json)
 
-**Natural-language development showcase · central mountain forest.** Captured 2026-09-16 in Unity `6000.5.10f1`; seed `234`, 128×128, world hash `AD86B217`. Broadleaf, cherry and conifer assets use the private `forest.presentation` profile. Camera: `(103,17,17)`, rotation `(355.378,320.906,0)`, perspective FOV `60°`, 1920×1080, HUD hidden.
+Camera: `1920×1080`, perspective FOV `60°`, position `(64,9,42)`, rotation `(2,335,0)`, UI hidden. Appearance: `forest.default` profile, visual layout hash `773E2BD3`, panoramic cloud skybox (rotation `110°`, exposure `1.13`).
 
-![The same generated forest in the default oblique preview](Media/Showcase/forest-mountain-overview.png)
-
-The second image shows the same world from the closer default preview. The source art, skybox and development scene are not included in this public repository. These images use the private v3 mountain extension; the public v3 release still accepts neutral layout settings only. Use the runnable **v4 mountain examples below** for public spatial generation. World-data hashes do not imply identical rendered images.
+> The commercial assets, skybox and development scene shown above are not included in this repository. The public demo runs with primitive geometry and requires no external art assets. This capture uses the v3 `forest-biome@1` path; the v4 examples use a separate path. Reproducing the same appearance requires the matching generator implementation, assets and rendering settings. A matching world hash does not imply an identical image.
 
 ## Architecture
 
