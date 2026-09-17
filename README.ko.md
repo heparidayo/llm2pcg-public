@@ -51,13 +51,13 @@ Direct JSON / MCP --> Validated JSON + Seed
 | --- | --- |
 | ![Woodland](Media/Showcase/01-woodland-detail.png) | ![Cherry-blossom forest](Media/Showcase/02-cherry-detail.png) |
 | 도시 | 던전 |
-| ![City](Media/Showcase/07-city-detail.png) | ![Dungeon](Media/Showcase/08-dungeon-detail.png) |
+| ![City](Media/Showcase/fp-city.png) | ![Dungeon](Media/Showcase/fp-dungeon.png) |
 | 늪 | 동굴(천장 제거) |
-| ![Swamp](Media/Showcase/05-swamp-detail.png) | ![동굴(천장 제거)](Media/Showcase/06-cave-detail.png) |
+| ![Swamp](Media/Showcase/fp-swamp.png) | ![동굴(천장 제거)](Media/Showcase/fp-cave.png) |
 | 사막 | 설원 |
-| ![Desert](Media/Showcase/03-desert-detail.png) | ![Snowfield](Media/Showcase/04-snowfield-detail.png) |
+| ![Desert](Media/Showcase/fp-desert.png) | ![Snowfield](Media/Showcase/fp-snowfield.png) |
 
-유지된 이미지의 시드 / 크기: 혼합림 234 / 96×96, 도시 715 / 96×96, 던전 816 / 64×64, 설원 412 / 96×96. 교체한 벚꽃 숲·사막·늪·동굴 이미지의 요청 메타데이터는 제공되지 않아 이전 이미지의 Seed·크기를 표기하지 않았습니다. Seed만으로 동일 결과를 재현할 수는 없으며 최종 생성 요청과 같은 생성기 구현이 필요합니다.
+유지된 이미지의 시드 / 크기: 혼합림 234 / 96×96. 교체한 벚꽃 숲·도시·던전·늪·동굴·사막·설원 이미지의 요청 메타데이터는 제공되지 않아 이전 이미지의 Seed·크기를 표기하지 않았습니다. Seed만으로 동일 결과를 재현할 수는 없으며 최종 생성 요청과 같은 생성기 구현이 필요합니다.
 
 ### 공간 구조·시각 분포 제어 (v4)
 

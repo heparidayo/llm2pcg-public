@@ -51,13 +51,13 @@ Actual Unity demonstrations without commercial assets. The visual assets, materi
 | --- | --- |
 | ![Woodland](Media/Showcase/01-woodland-detail.png) | ![Cherry-blossom forest](Media/Showcase/02-cherry-detail.png) |
 | City | Dungeon |
-| ![City](Media/Showcase/07-city-detail.png) | ![Dungeon](Media/Showcase/08-dungeon-detail.png) |
+| ![City](Media/Showcase/fp-city.png) | ![Dungeon](Media/Showcase/fp-dungeon.png) |
 | Swamp | Cave (ceiling removed) |
-| ![Swamp](Media/Showcase/05-swamp-detail.png) | ![Cave (ceiling removed)](Media/Showcase/06-cave-detail.png) |
+| ![Swamp](Media/Showcase/fp-swamp.png) | ![Cave (ceiling removed)](Media/Showcase/fp-cave.png) |
 | Desert | Snowfield |
-| ![Desert](Media/Showcase/03-desert-detail.png) | ![Snowfield](Media/Showcase/04-snowfield-detail.png) |
+| ![Desert](Media/Showcase/fp-desert.png) | ![Snowfield](Media/Showcase/fp-snowfield.png) |
 
-Seed / size for unchanged captures: woodland 234 / 96×96; city 715 / 96×96; dungeon 816 / 64×64; snowfield 412 / 96×96. Request metadata was not supplied for the replacement cherry-blossom, desert, swamp or cave images, so their previous seed and size values are omitted. A seed alone is insufficient for replay: retain the resolved request and matching generator implementation.
+Seed / size for unchanged captures: woodland 234 / 96×96. Request metadata was not supplied for the replacement cherry-blossom, city, dungeon, swamp, cave, desert or snowfield images, so their previous seed and size values are omitted. A seed alone is insufficient for replay: retain the resolved request and matching generator implementation.
 
 ### Spatial and visual control (v4)
 
