@@ -6,7 +6,9 @@ test('concurrent and later retries reuse one interpretation and seed; changed in
  let calls=0,seeds=0;const options={resolveCache:createResolveCache(),requestIntent:async()=>{calls++;await new Promise(r=>setTimeout(r,5));return emptyIntent();},seedFactory:()=>{seeds++;return 72;}};
  const body={prompt:'숲',requestId:'retry-test-00000001'};
  const results=await Promise.all(Array.from({length:4},()=>handleV4('/api/v4/resolve',body,options)));
- assert.equal(calls,1);assert.equal(seeds,1);for(const r of results)assert.deepEqual(r,results[0]);
+ assert.equal(calls,1);assert.equal(seeds,1);
+ for(const r of results)assert.deepEqual({...r,aiDelivery:undefined},{...results[0],aiDelivery:undefined});
+ assert.equal(results[0].aiDelivery.reused,false);assert.ok(results.slice(1).every(r=>r.aiDelivery.reused));
  results[0].request.seed=3;assert.equal((await handleV4('/api/v4/resolve',body,options)).request.seed,72);
  await assert.rejects(()=>handleV4('/api/v4/resolve',{...body,prompt:'사막'},options),{code:'REQUEST_ID_CONFLICT'});
 });

@@ -32,13 +32,14 @@ test('all canonical types have explicit glyphs and foreign category/type is reje
   for(const [category,types] of Object.entries(semanticTypes)){assert.deepEqual(types,semanticCatalog.categories[category].types);for(const type of types)assert.ok(glyphBoxes(category,type).length>0);}
   assert.throws(()=>glyphBoxes('trees','rock'));
 });
-test('capabilities distinguish available Web preview from opt-in Unity runtime',()=>{
+test('capabilities mark the retired Web preview separately from opt-in Unity runtime',()=>{
   assert.equal(capabilitiesV4.rendererReady,true);assert.equal(capabilitiesV4.unityReady,false);
   assert.equal(capabilitiesV4.webPreview.formatVersion,2);assert.equal(capabilitiesV4.webPreview.requiresCoreHost,true);
+  assert.equal(capabilitiesV4.webPreview.supported,false);assert.equal(capabilitiesV4.webPreview.retired,true);assert.equal(capabilitiesV4.webPreview.path,null);
 });
 test('all 64 valid contracts, two demos and four boundary sizes preserve full v2 data', {skip:process.env.PCG_V4_INTEGRATION!=='1'},()=>{
-  const fixtures=JSON.parse(readFileSync(new URL('../../Tests/Fixtures/SpatialVisualV4/contract-cases.json',import.meta.url),'utf8')).filter(c=>c.valid);
-  const river=resolveIntent(JSON.parse(readFileSync(new URL('../../Tests/Fixtures/SpatialVisualV4/river-cherry.intent.json',import.meta.url),'utf8'))).request;
+  const fixtures=JSON.parse(readFileSync(new URL('./fixtures/spatial-v4/contract-cases.json',import.meta.url),'utf8')).filter(c=>c.valid);
+  const river=resolveIntent(JSON.parse(readFileSync(new URL('./fixtures/spatial-v4/river-cherry.intent.json',import.meta.url),'utf8'))).request;
   const bridge=structuredClone(river);bridge.route={mode:'StraightCrossing',orientation:'EastWest',widthCells:3,crossingPolicy:'BridgeIfNeeded'};
   const cases=[...fixtures,{id:'river-demo',request:river},{id:'bridge-demo',request:bridge},
     ...[[16,16],[64,128],[128,64],[500,500]].map(([mapWidth,mapHeight])=>({id:`boundary-${mapWidth}x${mapHeight}`,request:resolveIntent({...emptyIntent(),seed:234,mapWidth,mapHeight}).request}))];

@@ -73,7 +73,7 @@ test("C# v4 schema/semantic parity, spatial invariants, repeatability, visual mo
     r=>r.distributionRules[0].amountMode="Exact",r=>r.route.widthCells=0,r=>r.waterMode="None"
   ];
   for(const mutate of invalidMutations){const r=structuredClone(base);mutate(r);assert.ok(validateRequestV4(r));assert.equal((await invoke(r)).ok,false);}
-  const fixtureFile=new URL("../../Tests/Fixtures/SpatialVisualV4/contract-cases.json",import.meta.url);
+  const fixtureFile=new URL("./fixtures/spatial-v4/contract-cases.json",import.meta.url);
   const fixtures=JSON.parse(readFileSync(fixtureFile,"utf8"));
   for(const fixture of fixtures){const local=validateRequestV4(fixture.request);assert.equal(!local,fixture.valid,fixture.id);
     const actual=await invoke(fixture.request);assert.equal(actual.ok,fixture.valid,fixture.id+": "+JSON.stringify(actual));}

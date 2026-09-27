@@ -41,7 +41,7 @@ export function validatePcgRequest(input) {
   const v=r.visualSettings;if(!v||![v.trees,v.rocks,v.bushes,v.groundDetails,v.waterProps].every(validVisualCategory))return "visualSettings is invalid.";
   for(const [name,types] of Object.entries(CATEGORY_TYPES))if(!v[name].allowedTypes.every(t=>types.includes(t)))return "visualSettings."+name+".allowedTypes contains a type for another category.";
   const presentation=r.presentationSettings;if(!presentation||!["Voxel","Surface"].includes(presentation.geometryMode)||typeof presentation.propsEnabled!=="boolean")return "presentationSettings is invalid.";
-  if(!validLayout(r.layoutSettings))return "layoutSettings is invalid.";
+  if(!validLayout(r.layoutSettings,r.worldType))return "layoutSettings is invalid (nature Mountain and central crossing River are supported; route remains neutral).";
   if(r.worldType==="Dungeon"){const s=r.generatorSettings.dungeon;if(!s||s.maxDepth<1||s.minLeafSize<1||s.minLeafSize>=r.mapWidth||s.minLeafSize>=r.mapHeight)return "Dungeon settings are invalid.";for(const k of ["boss","treasure","shop","secret"]){const room=r.specialRooms?.[k];if(!room||typeof room.enabled!=="boolean"||!Number.isInteger(room.count)||room.count<0||typeof room.placement!=="string"||!room.placement.length)return "Dungeon specialRooms are invalid.";}}
   if(r.worldType==="Cave"){const s=r.generatorSettings.cave;if(!s||s.fillPercent<20||s.fillPercent>80||s.automataSteps<1||s.minimumRegionSize<1||s.tunnelRadius<1||s.extraTunnelCount<0)return "Cave settings are invalid.";}
   if(r.worldType==="Forest"||r.worldType==="Swamp"||r.worldType==="Snowfield"||r.worldType==="Desert"){const s=r.generatorSettings.forest;if(!s||s.waterThreshold<0||s.waterThreshold>1||s.noiseOctaves<1||s.noiseOctaves>8||s.clearingRadius<=0||s.vegetationMinDistance<=0||s.vegetationMaxCount<0||s.elevationScale<=0||s.elevationScale>64||s.elevationFrequency<=0||s.elevationFrequency>1)return "Nature settings are invalid.";}
@@ -68,7 +68,15 @@ function normalizePresentation(value){return value&&typeof value.geometryMode===
 function defaultLayout(){return {landform:{kind:"None",placement:"Seeded",size:"Medium",intensity:"Medium"},water:{kind:"Default",placement:"Seeded",size:"Medium",meander:"Low",exclusive:false},route:{kind:"Default",placement:"Seeded",size:"Medium",orientation:"Seeded",meander:"Low"}};}
 function normalizeLayout(value){const defaults=defaultLayout();return {landform:value?.landform??defaults.landform,water:value?.water??defaults.water,route:value?.route??defaults.route};}
 function validVisualCategory(value){return value&&Number.isFinite(value.density)&&value.density>=0&&value.density<=1&&Number.isInteger(value.maxCount)&&value.maxCount>=0&&value.maxCount<=10000&&Array.isArray(value.allowedTypes)&&value.allowedTypes.every(type=>VISUAL_TYPES.has(type));}
-function validLayout(value){return value&&value.landform&&value.water&&value.route&&value.landform.kind==="None"&&value.landform.placement==="Seeded"&&value.landform.size==="Medium"&&value.landform.intensity==="Medium"&&value.water.kind==="Default"&&value.water.placement==="Seeded"&&value.water.size==="Medium"&&value.water.meander==="Low"&&value.water.exclusive===false&&value.route.kind==="Default"&&value.route.placement==="Seeded"&&value.route.size==="Medium"&&value.route.orientation==="Seeded"&&value.route.meander==="Low";}
+function validLayout(value,worldType){
+  const land=value?.landform;
+  const neutral=land?.kind==="None"&&land.placement==="Seeded"&&land.size==="Medium"&&land.intensity==="Medium";
+  const mountain=land?.kind==="Mountain"&&["Forest","Swamp","Snowfield","Desert"].includes(worldType)&&["Seeded","Center","North","South","East","West"].includes(land.placement)&&["Small","Medium","Large"].includes(land.size)&&["Low","Medium","High"].includes(land.intensity);
+  const water=value?.water;
+  const defaultWater=water?.kind==='Default'&&water.placement==='Seeded'&&water.size==='Medium'&&water.meander==='Low'&&water.exclusive===false;
+  const river=water?.kind==='River'&&['Forest','Swamp','Snowfield','Desert'].includes(worldType)&&['CenterNorthSouth','CenterEastWest'].includes(water.placement)&&['Small','Medium','Large'].includes(water.size)&&water.meander==='Low'&&typeof water.exclusive==='boolean';
+  return value&&value.route&&(neutral||mountain)&&(defaultWater||river)&&value.route.kind==="Default"&&value.route.placement==="Seeded"&&value.route.size==="Medium"&&value.route.orientation==="Seeded"&&value.route.meander==="Low";
+}
 const VISUAL_TYPES=new Set(["cherry_blossom","broadleaf","conifer","willow","dead_tree","palm","cactus","rock","bush","reeds","grass","flower","plant","mushroom","stump","log","branch","thorn","lily_pad","water_lily","ice"]);
 // These bounds mirror Shared/Schema/pcg-request.schema.json; schema parity is tested.
 const NUMBER_RULES={

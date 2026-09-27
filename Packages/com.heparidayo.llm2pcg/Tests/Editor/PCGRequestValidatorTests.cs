@@ -141,7 +141,7 @@ namespace Llm2Pcg.Tests.EditMode
         }
 
         [Test]
-        public void SpatialLayoutOverrides_AreRejectedForEveryWorldType()
+        public void WaterAndRouteOverrides_AndDungeonMountains_AreRejected()
         {
             PCGRequest forest = PCGRequest.CreateForestDefault();
             forest.layoutSettings.landform = new LandformLayoutSettings { kind = SpatialLayoutValues.Mountain, placement = SpatialLayoutValues.Center, size = SpatialLayoutValues.Large, intensity = SpatialLayoutValues.High };

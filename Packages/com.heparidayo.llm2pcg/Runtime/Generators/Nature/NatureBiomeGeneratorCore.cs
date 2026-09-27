@@ -28,6 +28,8 @@ namespace Llm2Pcg.Generators.Nature
 
             ForestGeneratorSettings source = request.generatorSettings.forest;
             NatureSettings settings = ResolveProfile(request.generationProfile, definition, source);
+            // Zero is an explicit dry-swamp request, including profiles that add water.
+            bool drySwamp = definition == NatureWorldTypes.Swamp && source.waterThreshold == 0;
             int width = request.mapWidth;
             int height = request.mapHeight;
             int count = width * height;
@@ -46,11 +48,13 @@ namespace Llm2Pcg.Generators.Nature
                 moisture[index] = FractalValueNoise(waterSeed, x, y, Math.Max(2, settings.NoiseOctaves - 1), settings.ElevationFrequency * .72f);
                 float shaped = ShapeTerrain(definition.TerrainStyle, baseNoise, detailNoise);
                 elevations[index] = QuantizeHeight(shaped * settings.ElevationScale);
-                tiles[index] = IsWater(definition, request.generationProfile, moisture[index], baseNoise, settings.WaterThreshold) ? BiomeTile.Water : BiomeTile.Ground;
+                tiles[index] = !drySwamp && IsWater(definition, request.generationProfile, moisture[index], baseNoise, settings.WaterThreshold) ? BiomeTile.Water : BiomeTile.Ground;
             }
 
             CleanupSmallRegions(tiles, width, height, 6, PcgSeed.Stage(request.seed, CleanupStage + definition.StageOffset));
-            EnsureRepresentativeWater(tiles, moisture, elevations, width, height, definition, request.generationProfile);
+            if (!drySwamp) EnsureRepresentativeWater(tiles, moisture, elevations, width, height, definition, request.generationProfile);
+            LandformHeightModifier.Apply(request, tiles, elevations);
+            RiverLayoutModifier.Apply(request, tiles, elevations);
 
             List<Int2> anchors = PoissonPoints(PcgSeed.Stage(request.seed, AnchorStage + definition.StageOffset), width, height, Math.Max(6, (int)Math.Round(settings.ClearingRadius)), tiles, 7, null);
             EnsureTwoAnchors(anchors, tiles, width, height);
@@ -65,6 +69,8 @@ namespace Llm2Pcg.Generators.Nature
                 for (int p = 0; p < path.Count; p++) PaintDisk(tiles, width, height, path[p], 1, BiomeTile.Path);
             }
 
+            // Clearings and legacy paths must never punch gaps through an explicit river.
+            RiverLayoutModifier.Apply(request, tiles, elevations);
             int vegetationDistance = Math.Max(2, (int)Math.Round(settings.VegetationMinDistance));
             List<Int2> vegetation = PoissonPoints(PcgSeed.Stage(request.seed, VegetationStage + definition.StageOffset), width, height, vegetationDistance, tiles, settings.VegetationMaxCount, anchors);
             return new BiomeWorldData(definition.WorldType, definition.GeneratorVersion, width, height, request.seed, tiles, anchors[0], anchors[anchors.Count - 1], vegetation, elevations);

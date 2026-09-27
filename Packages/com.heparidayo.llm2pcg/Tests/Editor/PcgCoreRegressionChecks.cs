@@ -11,10 +11,87 @@ namespace Llm2Pcg.Tests
         public static void Run()
         {
             NoiseRounding(); SpacingMatchesBruteForce(); NumericGuards(); MapGuards();
-            LegacyDefaults(); DungeonOutcomeDiagnostics(); NavigableEndpoints();
+            LegacyDefaults(); DungeonOutcomeDiagnostics(); NavigableEndpoints(); TerrainLandforms(); RiverLayouts();
         }
 
         private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
+
+        public static void TerrainLandforms()
+        {
+            foreach (PCGRequest request in new[] { PCGRequest.CreateForestDefault(234,128,128), PCGRequest.CreateSwampDefault(234,128,128), PCGRequest.CreateSnowfieldDefault(234,128,128), PCGRequest.CreateDesertDefault(234,128,128) })
+            {
+                BiomeWorldData baseline = GenerateBiome(request);
+                request.layoutSettings.landform = new LandformLayoutSettings { kind="Mountain", placement="Center", size="Large", intensity="High" };
+                BiomeWorldData raised = GenerateBiome(request);
+                Require(raised.ComputeStableHash() == GenerateBiome(request).ComputeStableHash(), request.worldType + " mountain replay changed.");
+                Require(raised.ComputeStableHash() != baseline.ComputeStableHash(), request.worldType + " ignored mountain.");
+                float center = raised.GetSurfaceHeight(64,64);
+                Require(center > 20f && center > baseline.GetSurfaceHeight(64,64) + 15f, request.worldType + " summit not raised.");
+                Require(raised.GetSurfaceHeight(0,0) == baseline.GetSurfaceHeight(0,0), "Landform changed background outside its footprint.");
+                Require(raised.IsWalkable(64,64), "Summit is water.");
+                foreach (float value in raised.Elevations) Require(value <= center && value * 4f == Math.Round(value * 4f), "Summit location/quantization mismatch.");
+                foreach (Int2 point in raised.Props) Require(raised.Tiles[point.Y*raised.Width+point.X] == BiomeTile.Ground, "Mountain vegetation intersects water/path.");
+                request.layoutSettings.landform.intensity="Low";
+                Require(GenerateBiome(request).GetSurfaceHeight(64,64) < center, "Height control ignored.");
+                request.layoutSettings.landform.size="Small";
+                Require(GenerateBiome(request).GetSurfaceHeight(90,64) == baseline.GetSurfaceHeight(90,64), "Small mountain footprint too wide.");
+            }
+            foreach (string placement in new[] { "Center", "North", "South", "East", "West", "Seeded" })
+            {
+                PCGRequest request = PCGRequest.CreateForestDefault(-17,96,64);
+                request.layoutSettings.landform = new LandformLayoutSettings { kind="Mountain", placement=placement, size="Large", intensity="High" };
+                BiomeWorldData world = GenerateBiome(request);
+                Require(world.ComputeStableHash() == GenerateBiome(request).ComputeStableHash(), "Placement replay mismatch.");
+                int cx=placement=="East"?72:placement=="West"?24:48;
+                int cy=placement=="North"?48:placement=="South"?16:32;
+                if(placement!="Seeded") foreach(float value in world.Elevations) Require(value <= world.GetSurfaceHeight(cx,cy), "Wrong cardinal summit: " + placement);
+            }
+            foreach (int width in new[] {16,500})
+            {
+                PCGRequest request=PCGRequest.CreateForestDefault(int.MinValue,width,width==16?500:16);
+                request.layoutSettings.landform=new LandformLayoutSettings {kind="Mountain",placement="Seeded",size="Large",intensity="High"};
+                Require(GenerateBiome(request).Elevations.Length==8000,"Rectangular boundary generation failed.");
+            }
+            foreach (PCGRequest request in new[] {PCGRequest.CreateDefault(),PCGRequest.CreateCityDefault(),PCGRequest.CreateCaveDefault()})
+            {
+                request.layoutSettings.landform.kind="Mountain";
+                Require(!PCGRequestValidator.Validate(request).IsValid,"Unsupported world accepted a mountain.");
+            }
+        }
+
+        private static BiomeWorldData GenerateBiome(PCGRequest request) => (BiomeWorldData)PCGGeneratorRegistry.Default.GetRequired(request).Generate(request);
+
+        public static void RiverLayouts()
+        {
+            foreach (int seed in new[] { 234, -17, int.MinValue })
+            foreach (PCGRequest request in new[] { PCGRequest.CreateForestDefault(seed,64,96), PCGRequest.CreateSwampDefault(seed,64,96), PCGRequest.CreateSnowfieldDefault(seed,64,96), PCGRequest.CreateDesertDefault(seed,64,96) })
+            foreach (string placement in new[] { "CenterNorthSouth", "CenterEastWest" })
+            foreach (string size in new[] { "Small", "Medium", "Large" })
+            {
+                request.layoutSettings.water = new WaterLayoutSettings { kind="River", placement=placement, size=size, meander="Low", exclusive=true };
+                BiomeWorldData world = GenerateBiome(request);
+                Require(world.ComputeStableHash() == GenerateBiome(request).ComputeStableHash(), "River replay mismatch.");
+                bool ns = placement == "CenterNorthSouth";
+                int span = ns ? world.Width : world.Height;
+                int percent = size == "Small" ? 3 : size == "Large" ? 9 : 5;
+                int half = Math.Max(1, span * percent / 200);
+                for (int y=0; y<world.Height; y++)
+                for (int x=0; x<world.Width; x++)
+                {
+                    int index=y*world.Width+x;
+                    bool river = Math.Abs((ns?x:y)-span/2)<=half;
+                    Require((world.Tiles[index]==BiomeTile.Water)==river, request.worldType+" river continuity/exclusive scope broken.");
+                    if(river) Require(world.Elevations[index]==0f,"River surface is not level.");
+                }
+                foreach(Int2 point in world.Props) Require(world.Tiles[point.Y*world.Width+point.X]==BiomeTile.Ground,"River vegetation is in water.");
+                Require(world.IsWalkable(world.StartPosition.X,world.StartPosition.Y)&&world.IsWalkable(world.ExitPosition.X,world.ExitPosition.Y),"River endpoint is in water.");
+            }
+            foreach (PCGRequest request in new[] { PCGRequest.CreateDefault(), PCGRequest.CreateCityDefault(), PCGRequest.CreateCaveDefault() })
+            {
+                request.layoutSettings.water = new WaterLayoutSettings { kind="River",placement="CenterNorthSouth",size="Medium",meander="Low" };
+                Require(!PCGRequestValidator.Validate(request).IsValid,"Unsupported world accepted river geometry.");
+            }
+        }
 
         public static void NoiseRounding()
         {

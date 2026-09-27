@@ -91,7 +91,7 @@ try {
     Write-Host "CoreHost: http://127.0.0.1:$CorePort"
 
     if ($ValidateOnly) {
-        foreach ($assetPath in @('/', '/app.js', '/renderer.js', '/world-codec.mjs', '/asset-manifest.json', '/unity/', '/unity/app.js', '/unity/styles.css', '/vendor/three.module.js', '/vendor/three.core.js', '/vendor/addons/loaders/GLTFLoader.js', '/vendor/addons/utils/BufferGeometryUtils.js')) {
+        foreach ($assetPath in @('/', '/app.js', '/renderer.js', '/world-codec.mjs', '/natural-language-status.mjs', '/asset-manifest.json', '/unity/', '/unity/app.js', '/unity/styles.css', '/vendor/three.module.js', '/vendor/three.core.js', '/vendor/addons/loaders/GLTFLoader.js', '/vendor/addons/utils/BufferGeometryUtils.js')) {
             $assetResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$WebPort$assetPath"
             if ($assetResponse.StatusCode -ne 200 -or $assetResponse.RawContentLength -le 0) { throw "Static Web asset validation failed for $assetPath." }
         }
@@ -109,13 +109,8 @@ try {
             }
             Write-Host ("PASS {0,-9} hash={1} cells={2}" -f $result.world.worldType, $result.world.worldHash, $decodedCells.Length)
         }
-        $gallery = Invoke-RestMethod -Uri "http://127.0.0.1:$WebPort/api/v4/examples"
-        foreach ($example in $gallery.examples) {
-            $body = @{ request = $example.request } | ConvertTo-Json -Depth 20 -Compress
-            $v4 = Invoke-RestMethod -Uri "http://127.0.0.1:$WebPort/api/v4/generate-direct" -Method Post -ContentType 'application/json' -Body $body
-            if (-not $v4.ok -or $v4.world.formatVersion -ne 2 -or $v4.world.seed -ne $example.request.seed) { throw "v4 API replay failed: $($example.id)" }
-            Write-Host "PASS v4 API $($example.id)"
-        }
+        & $nodeCommand.Source (Join-Path $PSScriptRoot 'Test-NaturalLanguage.mjs') "http://127.0.0.1:$WebPort"
+        if ($LASTEXITCODE -ne 0) { throw "Natural-language smoke test failed with exit code $LASTEXITCODE." }
         Write-Host 'Standalone Web end-to-end validation passed.' -ForegroundColor Green
         return
     }

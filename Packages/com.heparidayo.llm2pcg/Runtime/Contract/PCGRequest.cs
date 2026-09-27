@@ -269,7 +269,7 @@ namespace Llm2Pcg.Contract
             if (!ValidateProps(request.propSettings, out PCGValidationResult props)) return props;
             if (!ValidateVisuals(request.visualSettings, out PCGValidationResult visuals)) return visuals;
             if (!ValidatePresentation(request.presentationSettings, out PCGValidationResult presentation)) return presentation;
-            if (!ValidateLayout(request.layoutSettings, out PCGValidationResult layout)) return layout;
+            if (!ValidateLayout(request.layoutSettings, request.worldType, out PCGValidationResult layout)) return layout;
             if (string.Equals(request.worldType, PCGRequest.DungeonWorldType, StringComparison.Ordinal)) return ValidateDungeon(request);
             if (string.Equals(request.worldType, PCGRequest.CaveWorldType, StringComparison.Ordinal)) return ValidateCave(request);
             if (string.Equals(request.worldType, PCGRequest.ForestWorldType, StringComparison.Ordinal)) return ValidateForest(request);
@@ -344,13 +344,24 @@ namespace Llm2Pcg.Contract
                 : PCGValidationResult.Invalid("INVALID_PRESENTATION_SETTINGS", "presentationSettings.geometryMode must be Voxel or Surface.");
             return result.IsValid;
         }
-        private static bool ValidateLayout(LayoutSettings s, out PCGValidationResult result)
+        private static bool ValidateLayout(LayoutSettings s, string worldType, out PCGValidationResult result)
         {
+            LandformLayoutSettings land = s?.landform;
+            bool neutral = land != null && land.kind == SpatialLayoutValues.None && land.placement == SpatialLayoutValues.Seeded && land.size == SpatialLayoutValues.Medium && land.intensity == SpatialLayoutValues.Medium;
+            bool mountain = land != null && land.kind == SpatialLayoutValues.Mountain &&
+                OneOf(worldType, PCGRequest.ForestWorldType, PCGRequest.SwampWorldType, PCGRequest.SnowfieldWorldType, PCGRequest.DesertWorldType) &&
+                OneOf(land.placement, "Seeded", "Center", "North", "South", "East", "West") &&
+                OneOf(land.size, "Small", "Medium", "Large") && OneOf(land.intensity, "Low", "Medium", "High");
+            WaterLayoutSettings water = s?.water;
+            bool defaultWater = water != null && water.kind == SpatialLayoutValues.Default && water.placement == SpatialLayoutValues.Seeded && water.size == SpatialLayoutValues.Medium && water.meander == SpatialLayoutValues.Low && !water.exclusive;
+            bool river = water != null && water.kind == SpatialLayoutValues.River &&
+                OneOf(worldType, PCGRequest.ForestWorldType, PCGRequest.SwampWorldType, PCGRequest.SnowfieldWorldType, PCGRequest.DesertWorldType) &&
+                OneOf(water.placement, "CenterNorthSouth", "CenterEastWest") && OneOf(water.size, "Small", "Medium", "Large") && water.meander == SpatialLayoutValues.Low;
             bool valid = s != null && s.landform != null && s.water != null && s.route != null &&
-                s.landform.kind == SpatialLayoutValues.None && s.landform.placement == SpatialLayoutValues.Seeded && s.landform.size == SpatialLayoutValues.Medium && s.landform.intensity == SpatialLayoutValues.Medium &&
-                s.water.kind == SpatialLayoutValues.Default && s.water.placement == SpatialLayoutValues.Seeded && s.water.size == SpatialLayoutValues.Medium && s.water.meander == SpatialLayoutValues.Low && !s.water.exclusive &&
+                (neutral || mountain) &&
+                (defaultWater || river) &&
                 s.route.kind == SpatialLayoutValues.Default && s.route.placement == SpatialLayoutValues.Seeded && s.route.size == SpatialLayoutValues.Medium && s.route.orientation == SpatialLayoutValues.Seeded && s.route.meander == SpatialLayoutValues.Low;
-            result = valid ? PCGValidationResult.Valid() : PCGValidationResult.Invalid("UNSUPPORTED_LAYOUT_SETTINGS", "Spatial layout overrides are not supported. Use the neutral layoutSettings compatibility value.");
+            result = valid ? PCGValidationResult.Valid() : PCGValidationResult.Invalid("UNSUPPORTED_LAYOUT_SETTINGS", "Nature worlds support Mountain and central NorthSouth/EastWest River layouts. Route must use neutral layoutSettings.");
             return valid;
         }
         private static bool OneOf(string value, params string[] choices) { for (int index = 0; index < choices.Length; index++) if (string.Equals(value, choices[index], StringComparison.Ordinal)) return true; return false; }

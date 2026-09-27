@@ -1,0 +1,46 @@
+{
+  "intentVersion": 1,
+  "worldType": "Forest",
+  "seed": 234,
+  "mapWidth": 128,
+  "mapHeight": 128,
+  "terrainPreset": null,
+  "waterMode": null,
+  "spatialFeatures": [
+    {
+      "id": "river-main",
+      "kind": "River",
+      "placement": "CenterCrossing",
+      "orientation": "NorthSouth",
+      "size": "Large",
+      "exclusive": false
+    }
+  ],
+  "route": {
+    "mode": "None",
+    "orientation": "EastWest",
+    "widthCells": 3,
+    "crossingPolicy": "BridgeIfNeeded"
+  },
+  "distributionRules": [
+    {
+      "category": "trees",
+      "types": [
+        "cherry_blossom"
+      ],
+      "amountMode": "RelativeDensity",
+      "amount": 1000,
+      "region": "NearFeature",
+      "featureId": "river-main"
+    },
+    {
+      "category": "rocks",
+      "types": [],
+      "amountMode": "Off",
+      "amount": null,
+      "region": "WholeMap",
+      "featureId": null
+    }
+  ],
+  "unsupported": []
+}

@@ -1,6 +1,8 @@
+import {naturalLanguageNotice} from '/natural-language-status.mjs';
 const form = document.querySelector("#generator-form");
 const promptInput = document.querySelector("#prompt");
 const result = document.querySelector("#result");
+const naturalStatus = document.querySelector("#natural-status");
 const directForm = document.querySelector("#direct-generator-form");
 const directResult = document.querySelector("#direct-result");
 const natureDefaults = {
@@ -110,13 +112,22 @@ directForm.addEventListener("submit", async event => {
 form.addEventListener("submit", async event => {
   event.preventDefault();
   result.textContent = "Generating request with OpenAI and sending it to Unity…";
+  naturalStatus.textContent = "요청을 해석하고 맵을 생성하는 중입니다…";
   try {
     const response = await fetch("/api/unity/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({prompt:promptInput.value}) });
-    showResult(result, await response.json());
+    const body = await response.json();
+    const {interpretation,aiDelivery,...displayBody}=body;
+    showResult(result, displayBody);
+    const generationStatus = body.ok
+      ? "Unity에 맵 생성 요청을 보냈습니다."
+      : (body.message || "맵 생성 서비스 연결을 확인해 주세요.");
+    naturalStatus.textContent=[naturalLanguageNotice(body),generationStatus].filter(Boolean).join(' ');
   } catch (error) {
     showResult(result, { ok:false, code:"NETWORK_ERROR", message:error.message });
+    naturalStatus.textContent = "Web 서버 연결을 확인해 주세요.";
   }
 });
+promptInput.addEventListener('input',()=>{naturalStatus.textContent='';});
 
 document.querySelector("#save-snapshot").addEventListener("click", () => sendSnapshotCommand("/api/unity/save"));
 document.querySelector("#load-snapshot").addEventListener("click", () => sendSnapshotCommand("/api/unity/load"));

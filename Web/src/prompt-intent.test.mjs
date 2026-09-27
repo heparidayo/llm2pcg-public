@@ -54,11 +54,11 @@ test("model candidates are not mutated",()=>{
   const candidate=defaultRequest("Forest"); const before=structuredClone(candidate);
   interpret("나무 없이",candidate);assert.deepEqual(candidate,before);
 });
-test("spatial and exact-area claims produce visible capability warnings",()=>{
+test("central river is supported while exact-area claims still produce capability warnings",()=>{
   const {request,interpretation}=interpret("중앙에 강이 있는 숲, 물은 30%");
-  assert.ok(interpretation.warnings.some(w=>w.code==="UNSUPPORTED_SPATIAL_LAYOUT"));
+  assert.ok(!interpretation.warnings.some(w=>w.code==="UNSUPPORTED_SPATIAL_LAYOUT"));
   assert.ok(interpretation.warnings.some(w=>w.code==="WATER_COVERAGE_NOT_EXACT"));
-  assert.equal(request.layoutSettings.water.kind,"Default");
+  assert.equal(request.layoutSettings.water.kind,"River");
 });
 test("count is a cap, not a promise of exact placement",()=>{
   const {request,interpretation}=interpret("나무는 최대 12그루");
@@ -133,26 +133,27 @@ test("Responses integration uses bounded, non-stored requests and deterministic 
     assert.equal(result.seed,234);assert.equal(result.visualSettings.trees.density,1);assert.equal(result.visualSettings.rocks.density,0);
   } finally {if(old===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=old;}
 });
-test("natural generation exposes interpretation and forwards exactly the resolved request",async()=>{
-  let forwarded;
-  const server=createWebServer({requestPcg:async()=>defaultRequest("Forest",999),sendRequestToCore:async(request)=>{forwarded=request;return {world:{formatVersion:1}};}});
+test("natural generation logs interpretation privately and forwards exactly the resolved request",async()=>{
+  let forwarded, diagnostic;
+  const server=createWebServer({sendDiagnosticsToUnity:async message=>{diagnostic=message;},requestPcg:async()=>defaultRequest("Forest",999),sendRequestToCore:async(request)=>{forwarded=request;return {world:{formatVersion:1}};}});
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   try {
     const response=await fetch("http://127.0.0.1:"+server.address().port+"/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:"시드 234, 나무는 많이 바위는 없게, 중앙에 강"})});
     const body=await response.json();assert.equal(response.status,200);
     assert.deepEqual(body.request,forwarded);assert.equal(forwarded.seed,234);
-    assert.ok(body.interpretation.tokens.length);assert.ok(body.interpretation.warnings.length);
+    assert.equal(body.interpretation,undefined);assert.equal(forwarded.layoutSettings.water.kind,'River');assert.equal(diagnostic,undefined);
   } finally {await new Promise(resolve=>server.close(resolve));}
 });
-test("invalid translated request never reaches either generator",async()=>{
+test("invalid translated request is replaced before reaching either generator",async()=>{
   let calls=0;
-  const server=createWebServer({requestPcg:async()=>null,sendRequestToCore:async()=>{calls++;},sendRequestToUnity:async()=>{calls++;}});
+  const accept=request=>{assert.equal(validatePcgRequest(request),null);assert.equal(request.worldType,"Forest");calls++;};
+  const server=createWebServer({requestPcg:async()=>null,sendRequestToCore:async request=>{accept(request);return {world:{formatVersion:1}};},sendRequestToUnity:async request=>{accept(request);return {status:202,payload:{ok:true}};}});
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   try {
     for(const route of ["/api/generate","/api/unity/generate"]) {
       const response=await fetch("http://127.0.0.1:"+server.address().port+route,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:"숲"})});
-      assert.equal(response.status,502);assert.equal((await response.json()).code,"OPENAI_INVALID_CONTRACT");
+      assert.equal(response.status,route==="/api/generate"?200:202);assert.equal((await response.json()).interpretation,undefined);
     }
-    assert.equal(calls,0);
+    assert.equal(calls,2);
   } finally {await new Promise(resolve=>server.close(resolve));}
 });

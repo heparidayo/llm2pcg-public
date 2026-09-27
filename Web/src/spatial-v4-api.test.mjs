@@ -12,7 +12,7 @@ test('public gallery contains eight valid resolved requests without mutating sha
 
 test("v4 HTTP resolve draws one seed, generation forwards saved JSON, legacy Unity is not called",async t=>{
   let seedCalls=0,received;
-  const server=createWebServer({sendRequestToUnity:()=>{throw Error("Unity must not be called");},
+  const server=createWebServer({enableExperimentalV4:true,sendRequestToUnity:()=>{throw Error("Unity must not be called");},
     v4Options:{seedFactory:()=>{seedCalls++;return 901;},requestIntent:async()=>({...emptyIntent(),seed:777}),
       sendV4:async request=>{received=request;return {ok:true,world:{formatVersion:2}};}}});
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));t.after(()=>server.close());
@@ -76,6 +76,16 @@ test('an inactive model route uses the canonical Node defaults without changing 
  const draft={...emptyIntent(),route:{mode:'None',orientation:'NorthSouth',widthCells:1,crossingPolicy:'NoCrossing'}};
  assert.deepEqual(protectSpatialIntent('without roads',draft).route,{mode:'None',orientation:'EastWest',widthCells:3,crossingPolicy:'BridgeIfNeeded'});
  const direct=await handleV4('/api/v4/resolve',{intent:draft},{seedFactory:()=>1});assert.deepEqual(direct.request.route,draft.route);
+});
+test('a separate bridge deck is supported when a river and crossing route are present',()=>{
+ const prompt='중앙 남북 강을 동서 직선 길과 별도 다리 데크로 건너는 숲';
+ const draft={...emptyIntent(),spatialFeatures:[{id:'river',kind:'River',placement:'CenterCrossing',orientation:'NorthSouth',size:'Medium',exclusive:false}],
+  route:{mode:'StraightCrossing',orientation:'EastWest',widthCells:3,crossingPolicy:'BridgeIfNeeded'},unsupported:['별도 다리 데크']};
+ assert.deepEqual(protectSpatialIntent(prompt,draft).unsupported,[]);
+ assert.deepEqual(protectSpatialIntent('Forest with a north-south river, east-west road and separate bridge deck',
+  {...draft,unsupported:['separate bridge deck','curved bridge deck']}).unsupported,['curved bridge deck']);
+ assert.deepEqual(protectSpatialIntent(prompt,{...draft,unsupported:['별도 다리 데크','선인장']}).unsupported,['선인장']);
+ assert.deepEqual(protectSpatialIntent(prompt,{...draft,route:null}).unsupported,['별도 다리 데크']);
 });
 test('water only in a lake is not a global water prohibition; ambiguous lake counts are not exclusive',async()=>{
  const draft={...emptyIntent(),waterMode:'None',spatialFeatures:[{id:'lake',kind:'Lake',placement:'Center',orientation:null,size:'Large',exclusive:false}]};

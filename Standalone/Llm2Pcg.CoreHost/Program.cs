@@ -109,7 +109,7 @@ internal static class CoreHostSelfTest
 
             Llm2Pcg.Tests.PcgCoreRegressionChecks.Run();
             V4Endpoints.SelfTest();
-            Console.WriteLine("Standalone CoreHost self-test: 7 world baselines and 7 Core regression groups passed.");
+            Console.WriteLine("Standalone CoreHost self-test: 7 world baselines and 9 Core regression groups passed.");
             return 0;
         }
         catch (Exception exception)

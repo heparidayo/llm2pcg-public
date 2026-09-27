@@ -31,9 +31,15 @@ namespace Llm2Pcg.Bridge
 
         private readonly ConcurrentQueue<PCGRequest> requestQueue = new ConcurrentQueue<PCGRequest>();
         private readonly ConcurrentQueue<BridgeCommand> commandQueue = new ConcurrentQueue<BridgeCommand>();
+        private readonly ConcurrentQueue<string> diagnosticQueue = new ConcurrentQueue<string>();
         private readonly object lifecycleLock = new object();
-        private HttpListener listener;
-        private Thread listenerThread;
+        private sealed class ListenerSession
+        {
+            public readonly HttpListener Listener = new HttpListener();
+            public Thread Thread;
+            public volatile bool Stopping;
+        }
+        private ListenerSession session;
         private volatile bool isRunning;
         private string lastServerError;
         private volatile int lastResponseStatusCode;
@@ -84,12 +90,32 @@ namespace Llm2Pcg.Bridge
             // Keep the main-thread dispatcher alive while a browser or MCP client has focus.
             Application.runInBackground = true;
 #endif
-            if (startOnAwake)
-                StartServer();
         }
+
+        private void OnEnable()
+        {
+            if (Active != null && Active != this) return;
+            Active = this;
+#if UNITY_EDITOR
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += StopServer;
+            UnityEditor.EditorApplication.quitting += StopServer;
+            UnityEditor.EditorApplication.playModeStateChanged += OnPlayModeChanged;
+#endif
+            // Start is not called again after recompilation during Play Mode.
+            if (Application.isPlaying && startOnAwake) StartServer();
+        }
+
+#if UNITY_EDITOR
+        private void OnPlayModeChanged(UnityEditor.PlayModeStateChange state)
+        {
+            if (state == UnityEditor.PlayModeStateChange.ExitingPlayMode ||
+                state == UnityEditor.PlayModeStateChange.ExitingEditMode) StopServer();
+        }
+#endif
 
         private void Update()
         {
+            while (diagnosticQueue.TryDequeue(out string diagnostic)) Debug.LogWarning(diagnostic, this);
             while (requestQueue.TryDequeue(out PCGRequest request))
             {
                 try
@@ -110,6 +136,11 @@ namespace Llm2Pcg.Bridge
 
         private void OnDisable()
         {
+#if UNITY_EDITOR
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload -= StopServer;
+            UnityEditor.EditorApplication.quitting -= StopServer;
+            UnityEditor.EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+#endif
             StopServer();
         }
 
@@ -132,22 +163,23 @@ namespace Llm2Pcg.Bridge
                 if (isRunning)
                     return true;
 
+                var current = new ListenerSession();
+                session = current;
                 try
                 {
-                    HttpListener newListener = new HttpListener();
+                    HttpListener newListener = current.Listener;
                     newListener.Prefixes.Add("http://127.0.0.1:" + port + "/");
                     newListener.Prefixes.Add("http://localhost:" + port + "/");
                     newListener.Start();
 
-                    listener = newListener;
                     isRunning = true;
                     lastServerError = null;
-                    listenerThread = new Thread(ListenLoop)
+                    current.Thread = new Thread(() => ListenLoop(current))
                     {
                         IsBackground = true,
                         Name = "PCG HTTP Bridge"
                     };
-                    listenerThread.Start();
+                    current.Thread.Start();
                     Debug.Log("PCG HTTP bridge listening on port " + port + ".", this);
                     return true;
                 }
@@ -155,8 +187,9 @@ namespace Llm2Pcg.Bridge
                 {
                     lastServerError = exception.Message;
                     isRunning = false;
-                    listener?.Close();
-                    listener = null;
+                    current.Stopping = true;
+                    CloseListener(current.Listener);
+                    session = null;
                     Debug.LogError("PCG HTTP bridge could not start on port " + port + ": " + exception.Message, this);
                     return false;
                 }
@@ -165,37 +198,49 @@ namespace Llm2Pcg.Bridge
 
         public void StopServer()
         {
-            Thread threadToJoin;
+            ListenerSession current;
             lock (lifecycleLock)
             {
-                if (!isRunning && listener == null)
-                    return;
-
+                current = session;
                 isRunning = false;
-                listener?.Close();
-                listener = null;
-                threadToJoin = listenerThread;
-                listenerThread = null;
+                session = null;
+                if (current != null)
+                {
+                    current.Stopping = true;
+                    CloseListener(current.Listener);
+                }
+                while (requestQueue.TryDequeue(out _)) { }
+                while (commandQueue.TryDequeue(out _)) { }
+                while (diagnosticQueue.TryDequeue(out _)) { }
             }
 
+            Thread threadToJoin = current?.Thread;
             if (threadToJoin != null && threadToJoin.IsAlive && Thread.CurrentThread != threadToJoin)
-                threadToJoin.Join(2000);
+                if (!threadToJoin.Join(2000)) lastServerError = "HTTP worker did not stop within 2 seconds.";
         }
 
-        private void ListenLoop()
+        private static void CloseListener(HttpListener listener)
         {
-            while (isRunning)
+            // Abort active body reads as well as pending GetContext calls before domain teardown.
+            try { listener.Abort(); }
+            catch (ObjectDisposedException) { }
+            finally { listener.Close(); }
+        }
+
+        private void ListenLoop(ListenerSession current)
+        {
+            while (!current.Stopping)
             {
                 try
                 {
-                    HttpListenerContext context = listener.GetContext();
-                    HandleContext(context);
+                    HttpListenerContext context = current.Listener.GetContext();
+                    HandleContext(context, current);
                 }
-                catch (HttpListenerException) when (!isRunning)
+                catch (HttpListenerException) when (current.Stopping)
                 {
                     return;
                 }
-                catch (ObjectDisposedException) when (!isRunning)
+                catch (ObjectDisposedException) when (current.Stopping)
                 {
                     return;
                 }
@@ -206,7 +251,7 @@ namespace Llm2Pcg.Bridge
             }
         }
 
-        private void HandleContext(HttpListenerContext context)
+        private void HandleContext(HttpListenerContext context, ListenerSession current)
         {
             try
             {
@@ -231,9 +276,29 @@ namespace Llm2Pcg.Bridge
                 }
 
                 string path = context.Request.Url.AbsolutePath;
+                if (path == "/pcg/diagnostics")
+                {
+                    string message = context.Request.Headers["X-PCG-Diagnostics"];
+                    bool valid = !string.IsNullOrWhiteSpace(message) && message.Length <= 2048;
+                    if (valid) foreach (char character in message) if (character < 32 || character > 126) { valid = false; break; }
+                    if (!valid) { WriteResponse(context.Response, 400, null); return; }
+                    lock (lifecycleLock)
+                    {
+                        if (current.Stopping) return;
+                        if (diagnosticQueue.Count >= maximumQueuedRequests) { WriteResponse(context.Response, 429, null); return; }
+                        diagnosticQueue.Enqueue(message);
+                    }
+                    // Keep diagnostic details out of the demo HUD's tracked response fields.
+                    WriteResponse(context.Response, 204, null);
+                    return;
+                }
                 if (path == SavePath || path == LoadPath)
                 {
-                    commandQueue.Enqueue(path == SavePath ? BridgeCommand.Save : BridgeCommand.Load);
+                    lock (lifecycleLock)
+                    {
+                        if (current.Stopping) return;
+                        commandQueue.Enqueue(path == SavePath ? BridgeCommand.Save : BridgeCommand.Load);
+                    }
                     WriteTrackedResponse(context.Response, 202, PCGResponse.AcceptedCommand(path == SavePath ? "SAVE_QUEUED" : "LOAD_QUEUED", path == SavePath ? "Snapshot save queued." : "Snapshot load queued."));
                     return;
                 }
@@ -283,7 +348,11 @@ namespace Llm2Pcg.Bridge
                     return;
                 }
 
-                requestQueue.Enqueue(request);
+                lock (lifecycleLock)
+                {
+                    if (current.Stopping) return;
+                    requestQueue.Enqueue(request);
+                }
                 WriteTrackedResponse(context.Response, 202, PCGResponse.Accepted(request));
             }
             catch (Exception exception)
@@ -296,6 +365,11 @@ namespace Llm2Pcg.Bridge
                 {
                     // The remote client may have disconnected before the response could be written.
                 }
+            }
+            finally
+            {
+                try { context.Response.Close(); }
+                catch (ObjectDisposedException) { }
             }
         }
 

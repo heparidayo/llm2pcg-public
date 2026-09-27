@@ -3,7 +3,7 @@ import test from "node:test";
 import { createMcpHandler } from "./server.mjs";
 import { defaultRequest } from "../../Shared/pcg-request.mjs";
 import {emptyIntent,resolveIntent} from "../../Web/src/request-resolver.mjs";
-import {readFileSync,existsSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
@@ -36,8 +36,8 @@ test('MCP forwards all eight public gallery requests unchanged without LLM inter
  assert.equal(calls,8);
 });
 
-const fixtureUrl=new URL('../../Tests/Fixtures/SpatialVisualV4/contract-cases.json',import.meta.url);
-test('MCP uses the same 80 valid/invalid contract fixtures as Node and C#',{skip:!existsSync(fixtureUrl)},async()=>{
+const fixtureUrl=new URL('../../Web/src/fixtures/spatial-v4/contract-cases.json',import.meta.url);
+test('MCP uses the same 80 valid/invalid contract fixtures as Node and C#',async()=>{
  let forwarded=0;const handler=createMcpHandler({fetchImplementation:async()=>{forwarded++;return new Response(JSON.stringify({ok:true}));}});
  const fixtures=JSON.parse(readFileSync(fixtureUrl,'utf8'));
  for(const c of fixtures){const before=forwarded;const r=await handler({jsonrpc:'2.0',id:c.id,method:'tools/call',params:{name:'generate_world_v4',arguments:{request:c.request}}});assert.equal(!r.result.isError,c.valid,c.id);assert.equal(forwarded-before,c.valid?1:0,c.id);}
@@ -89,14 +89,29 @@ test("generate_dungeon alias upgrades legacy v1 requests before forwarding", asy
   assert.equal(forwarded.layoutSettings.route.kind, "Default");
 });
 
-test("generate_world rejects retired spatial layout overrides", async () => {
+test("generate_world rejects unsupported spatial layout overrides", async () => {
   let forwarded;
   const spatial = defaultRequest("Forest", 34001, 128, 128);
-  spatial.layoutSettings.landform = { kind:"Mountain", placement:"Center", size:"Large", intensity:"High" };
+  spatial.layoutSettings.landform = { kind:"Valley", placement:"Center", size:"Large", intensity:"High" };
   const handler = createMcpHandler({ fetchImplementation: async (_url, options) => { forwarded = JSON.parse(options.body); return new Response(JSON.stringify({ok:true}), {status:202}); } });
   const response = await handler({ jsonrpc:"2.0",id:4,method:"tools/call",params:{name:"generate_world",arguments:{request:spatial}} });
   assert.equal(response.result.isError, true);
   assert.equal(forwarded, undefined);
+});
+
+test("generate_world forwards supported mountain and central river layouts unchanged",async()=>{
+  let forwarded;
+  const handler=createMcpHandler({fetchImplementation:async(_url,options)=>{
+    forwarded=JSON.parse(options.body);return new Response(JSON.stringify({ok:true}),{status:202});
+  }});
+  for(const world of ['Forest','Swamp','Snowfield','Desert']) {
+    const request=defaultRequest(world,234,128,128);
+    request.layoutSettings.landform={kind:'Mountain',placement:'Center',size:'Large',intensity:'High'};
+    request.layoutSettings.water={kind:'River',placement:'CenterNorthSouth',size:'Medium',meander:'Low',exclusive:true};
+    const response=await handler({jsonrpc:'2.0',id:world,method:'tools/call',params:{name:'generate_world',arguments:{request}}});
+    assert.notEqual(response.result.isError,true,world);
+    assert.deepEqual(forwarded,request,world);
+  }
 });
 
 test("generate_world preserves presentation settings for Unity", async () => {

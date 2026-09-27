@@ -9,6 +9,8 @@ export function proposeV4Migration(source) {
   const invalid=validatePcgRequest(source);if(invalid)fail(invalid);
   if(!Object.hasOwn(biomeVersions,source.worldType))fail('City/Cave/Dungeon do not have a v4 spatial adapter.');
   if(source.propSettings.enabled)fail('Legacy gameplay props have no v4 semantic equivalent.');
+  if(source.layoutSettings?.landform?.kind==="Mountain")fail('A v3 Mountain must be recreated explicitly in v4; migration would discard the requested landform.');
+  if(source.layoutSettings?.water?.kind==='River')fail('A v3 River must be recreated explicitly in v4; migration would discard the requested river.');
   const {request}=resolveIntent({...emptyIntent(),worldType:source.worldType,seed:source.seed,mapWidth:source.mapWidth,mapHeight:source.mapHeight});
   const warnings=[
     'Generator changes to @2. This is a new world, NOT an identical v3 replay.',

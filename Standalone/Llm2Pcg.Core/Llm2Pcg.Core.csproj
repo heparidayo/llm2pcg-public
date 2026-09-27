@@ -23,6 +23,8 @@
     <Compile Include="../../Packages/com.heparidayo.llm2pcg/Runtime/Generators/City/CityHybridWfcGenerator.cs" Link="Generators/City/CityHybridWfcGenerator.cs" />
     <Compile Include="../../Packages/com.heparidayo.llm2pcg/Runtime/Generators/Nature/NatureBiomeDefinition.cs" Link="Generators/Nature/NatureBiomeDefinition.cs" />
     <Compile Include="../../Packages/com.heparidayo.llm2pcg/Runtime/Generators/Nature/NatureBiomeGeneratorCore.cs" Link="Generators/Nature/NatureBiomeGeneratorCore.cs" />
+    <Compile Include="../../Packages/com.heparidayo.llm2pcg/Runtime/Generators/Nature/LandformHeightModifier.cs" Link="Generators/Nature/LandformHeightModifier.cs" />
+    <Compile Include="../../Packages/com.heparidayo.llm2pcg/Runtime/Generators/Nature/RiverLayoutModifier.cs" Link="Generators/Nature/RiverLayoutModifier.cs" />
     <Compile Include="../../Packages/com.heparidayo.llm2pcg/Runtime/Generators/Nature/SwampBiomeGenerator.cs" Link="Generators/Nature/SwampBiomeGenerator.cs" />
     <Compile Include="../../Packages/com.heparidayo.llm2pcg/Runtime/Generators/Nature/SnowfieldBiomeGenerator.cs" Link="Generators/Nature/SnowfieldBiomeGenerator.cs" />
     <Compile Include="../../Packages/com.heparidayo.llm2pcg/Runtime/Generators/Nature/DesertBiomeGenerator.cs" Link="Generators/Nature/DesertBiomeGenerator.cs" />

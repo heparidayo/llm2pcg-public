@@ -61,14 +61,15 @@
       <section class="card" aria-labelledby="llm-title">
         <div class="section-heading">
           <div><p class="eyebrow">OPENAI RESPONSES API</p><h2 id="llm-title">자연어 생성</h2></div>
-          <span class="badge">API key required</span>
         </div>
         <form id="generator-form">
           <label for="prompt">월드 요청</label>
-          <textarea id="prompt" required rows="5">128x128 크기의 숲을 완성형으로 만들어줘. 나무는 벚꽃 같은 나무만 있게 해줘.</textarea>
+          <textarea id="prompt" rows="5"></textarea>
+          <p>예시 : 128x128 크기의 던전 만들어봐. 적당한 크기의 늪지대 만들어줘. 넓은 사막 만들어줘.</p>
           <button type="submit">자연어로 Unity에 생성</button>
         </form>
-        <pre id="result" class="result" aria-live="polite">OPENAI_API_KEY를 설정한 Web 서버에서만 사용할 수 있습니다.</pre>
+        <p id="natural-status" role="status"></p>
+        <pre id="result" class="result" aria-live="polite">Unity Play Mode와 Web 서버를 실행한 뒤 생성할 수 있습니다.</pre>
       </section>
 
       <aside class="help"><strong>빠른 확인:</strong> Unity Play Mode → 이 페이지의 직접 생성 → Unity Game View에서 <code>GENERATED</code> 확인.</aside>

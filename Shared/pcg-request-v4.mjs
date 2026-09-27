@@ -7,7 +7,7 @@ export const biomeVersions={Forest:"forest-biome@2",Desert:"desert-biome@2",Snow
 export const capabilitiesV4 = {
   experimental:true, schemaVersion:4, worldTypes:Object.keys(biomeVersions), generatorVersion:"forest-biome@2", generatorVersions:biomeVersions,
   rendererReady:true, unityReady:false, stages:["headless-spatial","semantic-placement","web-primitive-preview"],
-  webPreview:{supported:true,requiresCoreHost:true,maximumMapSize:500,formatVersion:2,path:"/spatial-v4",generateEndpoint:"/api/v4/generate-direct",profile:"web-primitive-forest@1"},
+  webPreview:{supported:false,retired:true,requiresCoreHost:true,maximumMapSize:500,formatVersion:2,path:null,generateEndpoint:null,profile:"web-primitive-forest@1"},
   unityEditorPreview:{supported:true,requiresOptIn:true,maximumMapSize:256,statusEndpoint:"/api/v4/unity-status",generateEndpoint:"/api/v4/generate-unity",profile:"primitive-forest@1"},
   unsupported:["City/Cave/Dungeon spatial controls","Exact counts","clustering","navigation guarantee"],
   catalog:semanticCatalog

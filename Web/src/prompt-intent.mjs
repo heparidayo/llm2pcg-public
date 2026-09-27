@@ -1,3 +1,6 @@
+import { analyzeLandformPrompt } from "./terrain-intent.mjs";
+import { analyzeRiverPrompt } from './water-intent.mjs';
+import { defaultRequest } from "../../Shared/pcg-request.mjs";
 // Domain lexemes, not the model's BPE tokens. Offsets refer to NFKC-normalized text.
 // LLM owns open-ended semantics; these rules protect explicit, bounded constraints.
 const categories = {
@@ -20,6 +23,7 @@ const categories = {
 const lexemes = Object.entries(categories).flatMap(([category,[generic,types]]) =>
   [...generic.map(pattern=>({category,pattern})),
     ...Object.entries(types).flatMap(([type,patterns])=>patterns.map(pattern=>({category,type,pattern})))]);
+const waterLexemes = ["(?<![가-힣])물(?!고기|감|건|체|류|품)", "수면", "호수", "연못", "개울", "강(?=가|이|은|을|도|물|\\s|$)", "water", "lakes?", "ponds?", "rivers?", "streams?"].map(pattern=>({category:"water",pattern}));
 const separator = /[,;!?\n。]|\.(?!\d)|\b(?:but|and)\b|하지만|그리고|그러나/giu;
 const negative = /없|빼|제외|제거|미사용|(?:사용|배치|넣|표시)하지|안\s*(?:배치|넣|두|보이)|\b(?:no|without|remove|exclude)\b/i;
 const doubleNegative = /없지\s*않|빼지\s*말|제외하지\s*말|제거하지\s*말|\b(?:not without|do not remove|don't remove)\b/i;
@@ -32,10 +36,10 @@ const typesForCategory = category => [
   ...Object.keys(categories[category][1])
 ];
 
-export function tokenizePrompt(prompt) {
+export function tokenizePrompt(prompt, {includeWater=false}={}) {
   const text = String(prompt ?? "").normalize("NFKC").toLowerCase();
   const candidates = [];
-  for (const lexeme of lexemes) {
+  for (const lexeme of includeWater ? [...lexemes,...waterLexemes] : lexemes) {
     const english = /^[a-z]/i.test(lexeme.pattern);
     const pattern = new RegExp(english ? `\\b(?:${lexeme.pattern})\\b` : lexeme.pattern,"giu");
     for (const match of text.matchAll(pattern)) candidates.push({
@@ -71,8 +75,9 @@ export function explicitPropsIntent(prompt) {
 }
 
 export function analyzePrompt(prompt) {
-  const {text,tokens} = tokenizePrompt(prompt);
+  const {text,tokens} = tokenizePrompt(prompt,{includeWater:true});
   const constraints = [], warnings = [];
+  let waterIntent;
   const add = (path,value,evidence) => constraints.push({path,value,evidence});
   for (const match of text.matchAll(/(?:\bseed|시드)\s*(?:는|은|값)?\s*[:=]?\s*(-?\d+)(?!\d|\.\d)/g))
     add("seed",Number(match[1]),match[0]);
@@ -111,6 +116,14 @@ export function analyzePrompt(prompt) {
       const path="visualSettings."+group.category;
       const types=[...new Set(group.tokens.map(t=>t.type).filter(Boolean))];
       const isNegative=negative.test(scope)&&!doubleNegative.test(scope);
+      if (group.category === "water") {
+        if (isNegative) waterIntent = {value:0,evidence:scope.trim()};
+        else if (doubleNegative.test(scope)) waterIntent = {value:.46,evidence:scope.trim()};
+        else if (sparse.test(scope)) waterIntent = {value:.30,evidence:scope.trim()};
+        else if (abundant.test(scope)) waterIntent = {value:.56,evidence:scope.trim()};
+        else waterIntent = {value:.46,evidence:scope.trim()};
+        continue;
+      }
       if (doubleNegative.test(scope)) {
         warnings.push({code:"AMBIGUOUS_NEGATION",message:"이중 부정은 단순 제외 규칙으로 덮어쓰지 않습니다.",evidence:scope.trim()});
       } else if(isNegative && types.length===1) {
@@ -137,11 +150,18 @@ export function analyzePrompt(prompt) {
     }
     start=boundary.end;
   }
-  if (/(?:중앙|가운데|가로지|중심|동쪽|서쪽|북쪽|남쪽|\bcentral\b|\bcenter\b|\bcrossing\b)[^.!?\n]{0,25}(?:강|호수|산|도로|길|river|lake|mountain|road)|(?:강|호수|산|도로|river|lake|mountain|road)[^.!?\n]{0,25}(?:중앙|가운데|가로지|\bcenter\b|\bcross)/i.test(text))
-    warnings.push({code:"UNSUPPORTED_SPATIAL_LAYOUT",message:"중앙 산·지정 위치의 강·횡단 도로 등 공간 배치는 아직 지원하지 않습니다. 기본 배치를 사용합니다."});
+  const landform=analyzeLandformPrompt(prompt);
+  constraints.push(...landform.constraints); warnings.push(...landform.warnings);
+  const river=analyzeRiverPrompt(prompt);
+  constraints.push(...river.constraints);
+  if (/(?:중앙|가운데|가로지|중심|동쪽|서쪽|북쪽|남쪽|\bcentral\b|\bcenter\b|\bcrossing\b)[^.!?\n]{0,25}(?:호수|도로|길|lake|road)|(?:호수|도로|lake|road)[^.!?\n]{0,25}(?:중앙|가운데|가로지|\bcenter\b|\bcross)/i.test(text)
+      || (!river.supported && /(?:중앙|가운데|동쪽|서쪽|북쪽|남쪽)[^.!?\n]{0,25}강/i.test(text)))
+    warnings.push({code:"UNSUPPORTED_SPATIAL_LAYOUT",message:"중앙을 남북·동서로 관통하는 강은 지원합니다. 그 밖의 지정 위치 강·호수·횡단 도로는 아직 지원하지 않습니다."});
+  if(/계곡|고원|분화구|\b(?:valley|plateau|crater)\b/i.test(text))
+    warnings.push({code:"UNSUPPORTED_LANDFORM",message:"현재 지형 변경은 산·완만한 언덕 하나를 지원합니다. 계곡·고원·분화구는 지원하지 않습니다."});
   if (/(?:물|호수|수면|water)[^.!?\n]{0,12}\d+\s*%/i.test(text))
     warnings.push({code:"WATER_COVERAGE_NOT_EXACT",message:"물 임계값은 수면 면적 비율과 다릅니다. 요청한 물 면적 비율을 정확히 보장하지 않습니다."});
-  return {version:"pcg-intent@1",tokens,constraints,warnings};
+  return {version:"pcg-intent@1",tokens,constraints,warnings,...(waterIntent?{waterIntent}:{})};
 }
 
 export function applyVisualIntent(prompt,request) {
@@ -161,8 +181,26 @@ export function applyVisualIntent(prompt,request) {
   return request;
 }
 
+export function applySwampDefaults(prompt, request) {
+  if (request?.worldType !== "Swamp") return request;
+  const intent = analyzePrompt(prompt);
+  const defaults = defaultRequest("Swamp").generatorSettings.forest;
+  // A plain swamp uses the complete wetland preset, independent of model guesses.
+  request.generatorSettings.forest = {...defaults};
+  const namedProfile = String(prompt).match(/\b(DefaultSwamp|OpenMarsh|DenseBog)\b/i)?.[1];
+  request.generationProfile = ["DefaultSwamp","OpenMarsh","DenseBog"].find(p=>p.toLowerCase()===namedProfile?.toLowerCase())??"DefaultSwamp";
+  if (intent.waterIntent) request.generatorSettings.forest.waterThreshold = intent.waterIntent.value;
+  for (const category of Object.keys(categories))
+    for (const [field, value] of Object.entries(freshCategory())) {
+      const explicit = intent.constraints.some(c => c.path === `visualSettings.${category}.${field}`);
+      const species = field === "allowedTypes" && intent.tokens.some(t => t.category === category && t.type);
+      if (!explicit && !species) request.visualSettings[category][field] = value;
+    }
+  return request;
+}
+
 export function applyExplicitNumbers(prompt,request) {
-  for(const {path,value} of analyzePrompt(prompt).constraints.filter(c=>!c.path.startsWith("visualSettings."))) {
+  for(const {path,value} of analyzePrompt(prompt).constraints.filter(c=>["seed","mapWidth","mapHeight","generatorSettings.forest.waterThreshold"].includes(c.path))) {
     if(path.startsWith("generatorSettings.forest.")) {
       if(request.generatorSettings?.forest) request.generatorSettings.forest.waterThreshold=value;
     } else request[path]=value;

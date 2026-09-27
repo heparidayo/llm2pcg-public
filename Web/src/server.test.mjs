@@ -69,7 +69,7 @@ test("restores default visual components unless natural language explicitly excl
   assert.equal(validatePcgRequest(noTrees), null);
 });
 
-test("keeps ordinary Forest water modest while preserving explicit wet biomes", () => {
+test("natural Forest caps unrequested water while explicit wet prompts take precedence", () => {
   const cherryForest = defaultRequest("Forest", 234, 128, 128);
   cherryForest.generatorSettings.forest.waterThreshold = 0.46;
   applyForestWaterPolicy("128x128 크기의 숲을 완성형으로 만들어줘. 나무는 벚꽃 같은 나무만 있게 해줘.", cherryForest);
@@ -78,7 +78,7 @@ test("keeps ordinary Forest water modest while preserving explicit wet biomes", 
   const wetForest = defaultRequest("Forest", 235, 128, 128);
   wetForest.generatorSettings.forest.waterThreshold = 0.46;
   applyForestWaterPolicy("물이 많고 습한 숲을 만들어줘", wetForest);
-  assert.equal(wetForest.generatorSettings.forest.waterThreshold, 0.46);
+  assert.equal(wetForest.generatorSettings.forest.waterThreshold, 0.56);
 
   const swamp = defaultRequest("Swamp", 236, 128, 128);
   applyForestWaterPolicy("물이 많은 늪을 만들어줘", swamp);
@@ -112,7 +112,7 @@ test("upgrades a legacy v1 Dungeon request to the v3 generator contract", () => 
   assert.equal(validatePcgRequest(upgraded), null);
 });
 
-test("rejects spatial layout overrides for every world type", () => {
+test("rejects unsupported water and route layout overrides", () => {
   const forest = defaultRequest("Forest", 7790, 128, 128);
   forest.layoutSettings.landform = { kind:"Mountain", placement:"Center", size:"Large", intensity:"High" };
   forest.layoutSettings.water = { kind:"River", placement:"CenterCrossing", size:"Large", meander:"Medium", exclusive:false };

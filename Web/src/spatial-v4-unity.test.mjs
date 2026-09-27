@@ -21,9 +21,9 @@ test('Unity v4 preserves busy/size errors and reports unavailable without retrie
   for(const status of [400,422,429,504])await assert.rejects(()=>sendV4ToUnity(request,{fetchImplementation:async()=>Response.json({ok:false,code:'EXPECTED'},{status})}),{status,code:'EXPECTED'});
   let calls=0;await assert.rejects(()=>sendV4ToUnity(request,{fetchImplementation:async()=>{calls++;throw Error('offline');}}),{code:'UNITY_V4_UNAVAILABLE'});assert.equal(calls,1);
 });
-test('Web v4 routes explicitly to Unity, rejects cross-origin writes and serves opt-in page',async t=>{
+test('explicit developer v4 API rejects cross-origin writes; retired UI stays unavailable',async t=>{
   let received,calls=0;
-  const server=createWebServer({v4Options:{sendUnityV4:async r=>{received=r;calls++;return receipt;},readUnityV4:async()=>({ok:true,maximumMapSize:256})}});
+  const server=createWebServer({enableExperimentalV4:true,v4Options:{sendUnityV4:async r=>{received=r;calls++;return receipt;},readUnityV4:async()=>({ok:true,maximumMapSize:256})}});
   await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>server.close());
   const base='http://127.0.0.1:'+server.address().port;
   const options={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request})};
@@ -32,6 +32,7 @@ test('Web v4 routes explicitly to Unity, rejects cross-origin writes and serves 
   assert.equal((await fetch(base+'/api/v4/generate-unity',{...options,body:duplicate})).status,400);assert.equal(calls,1);
   assert.equal((await fetch(base+'/api/v4/generate-unity',{...options,headers:{...options.headers,Origin:'https://example.org'}})).status,403);assert.equal(calls,1);
   assert.equal((await fetch(base+'/api/v4/unity-status')).status,200);
-  assert.match(await (await fetch(base+'/spatial-v4')).text(),/Start HTTP Preview/);
-  assert.equal((await fetch(base+'/spatial-v4.js')).status,200);
+  const retired=await fetch(base+'/spatial-v4',{redirect:'manual'});
+  assert.equal(retired.status,308);assert.equal(retired.headers.get('location'),'/unity');
+  assert.equal((await fetch(base+'/spatial-v4.js')).status,404);
 });

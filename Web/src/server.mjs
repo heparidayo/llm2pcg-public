@@ -1,12 +1,17 @@
 import { createServer } from "node:http";
 import { handleV4 } from "./spatial-v4-api.mjs";
+import {trackAiDelivery} from './ai-delivery.mjs';
 import { createResolveCache } from "./resolve-cache.mjs";
 import { parseStrictJson } from "../../Shared/strict-json.mjs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { upgradePcgRequest, validatePcgRequest } from "../../Shared/pcg-request.mjs";
-import { analyzePrompt, applyExplicitNumbers, applyVisualIntent, explicitPropsIntent } from "./prompt-intent.mjs";
+import { analyzePrompt, applyExplicitNumbers, applyVisualIntent, explicitPropsIntent, applySwampDefaults } from "./prompt-intent.mjs";
+import { applyLandformIntent } from "./terrain-intent.mjs";
+import { applyRiverIntent } from './water-intent.mjs';
+import { repairNaturalDraft, NATURAL_FALLBACK_POLICY } from "./natural-language-fallback.mjs";
+import { formatInterpretationDiagnostic } from "./interpretation-diagnostics.mjs";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(moduleDirectory, "../public");
@@ -136,13 +141,14 @@ export const applyDefaultWorldComponents = applyVisualIntent;
 
 export function applyForestWaterPolicy(prompt, request) {
   if (request?.worldType !== "Forest" || !request.generatorSettings?.forest) return request;
-  const text = String(prompt ?? "").normalize("NFKC").toLowerCase();
-  const explicit = analyzePrompt(prompt).constraints.some(c=>c.path==="generatorSettings.forest.waterThreshold");
+  const intent = analyzePrompt(prompt);
+  const explicit = intent.constraints.some(c=>c.path==="generatorSettings.forest.waterThreshold");
   if (explicit) return applyExplicitNumbers(prompt,request);
-  const wet = /(?:물|호수|강|수로)[^.!?\n]{0,12}(?:많|가득|풍부|넘치|투성이|여러)|습한|습윤한|침수된|범람한|늪\s*(?:같은|처럼)|\b(?:wet|water[- ]rich|flooded|swampy)\b/i.test(text);
   const current=request.generatorSettings.forest.waterThreshold;
-  if (!Number.isFinite(current)) return request; // Validation must expose malformed model values.
-  if (!wet) request.generatorSettings.forest.waterThreshold=Math.min(current,.20);
+  if (intent.waterIntent) request.generatorSettings.forest.waterThreshold=intent.waterIntent.value;
+  else if (/습한|습윤한|침수된|범람한|늪\s*(?:같은|처럼)|\b(?:wet|water[- ]rich|flooded|swampy)\b/i.test(String(prompt)))
+    request.generatorSettings.forest.waterThreshold=.46;
+  else if (Number.isFinite(current)) request.generatorSettings.forest.waterThreshold=Math.min(current,.20);
   return request;
 }
 
@@ -150,17 +156,56 @@ export function finalizePcgInterpretation(prompt,candidate) {
   const validationError=validatePcgRequest(candidate);
   if(validationError) throw Object.assign(new Error(validationError),{code:"OPENAI_INVALID_CONTRACT"});
   const request=structuredClone(upgradePcgRequest(candidate));
-  applyPresentationIntent(prompt,request);
-  applyDefaultWorldComponents(prompt,request);
-  applyForestWaterPolicy(prompt,request);
-  applyExplicitNumbers(prompt,request);
+  applyPromptPolicies(prompt,request);
   const finalError=validatePcgRequest(request);
   if(finalError) throw Object.assign(new Error(finalError),{code:"INVALID_PROMPT_CONSTRAINT"});
   const interpretation=analyzePrompt(prompt);
+  warnUnsupportedRiverWorld(request,interpretation);
+  if(interpretation.constraints.some(c=>c.path==="layoutSettings.landform.kind"&&c.value==="Mountain") && !["Forest","Swamp","Snowfield","Desert"].includes(request.worldType))
+    interpretation.warnings.push({code:"UNSUPPORTED_LANDFORM_WORLD",message:"산 지형은 숲·설원·사막·늪에서 지원합니다. 도시·동굴·던전에는 적용하지 않습니다."});
   return {request,interpretation};
 }
 
+function applyPromptPolicies(prompt,request) {
+  applyPresentationIntent(prompt,request);
+  applyDefaultWorldComponents(prompt,request);
+  applySwampDefaults(prompt,request);
+  applyForestWaterPolicy(prompt,request);
+  applyExplicitNumbers(prompt,request);
+  applyLandformIntent(prompt,request);
+  applyRiverIntent(prompt,request);
+}
+
+export function resolveNaturalDraft(prompt,candidate,{reason}={}) {
+  const initial=repairNaturalDraft(prompt,candidate);
+  applyPromptPolicies(prompt,initial.request);
+  const final=repairNaturalDraft(prompt,initial.request);
+  const interpretation=analyzePrompt(prompt);
+  warnUnsupportedRiverWorld(final.request,interpretation);
+  if(interpretation.constraints.some(c=>c.path==='layoutSettings.landform.kind'&&c.value==='Mountain')&&
+     !['Forest','Swamp','Snowfield','Desert'].includes(final.request.worldType))
+    interpretation.warnings.push({code:'UNSUPPORTED_LANDFORM_WORLD',message:'이 바이옴은 산 지형을 지원하지 않아 기본 지형으로 생성했습니다.'});
+  const replacements=[...initial.replacements,...final.replacements];
+  const used=Boolean(reason||replacements.length);
+  interpretation.fallback={used,policy:NATURAL_FALLBACK_POLICY,reason:reason??null,replacements};
+  if(used) interpretation.warnings.push({code:'DEFAULTS_APPLIED',message:reason
+    ?'자연어 해석을 완료하지 못해 인식 가능한 조건과 기본 설정으로 맵을 생성했습니다.'
+    :'지원하지 않거나 잘못된 설정을 기본값으로 바꾸어 맵을 생성했습니다.'});
+  return {request:final.request,interpretation};
+}
+
 export async function requestPcgFromOpenAi(prompt, fetchImplementation = fetch) {
+  return finalizePcgInterpretation(prompt,await requestCandidateFromOpenAi(prompt,fetchImplementation)).request;
+}
+
+function warnUnsupportedRiverWorld(request,interpretation) {
+  if(!['Forest','Swamp','Snowfield','Desert'].includes(request.worldType)&&
+     interpretation.constraints.some(c=>c.path==='layoutSettings.water'&&c.value.kind==='River'))
+    interpretation.warnings.push({code:'UNSUPPORTED_WATER_WORLD',message:'중앙 강은 숲·사막·설원·늪에서 지원합니다.'});
+}
+
+export async function requestCandidateFromOpenAi(prompt, fetchImplementation = fetch, {onDelivery} = {}) {
+ return trackAiDelivery(prompt,{model:openAiModel,onDelivery},async tracker=>{
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error("OPENAI_API_KEY is not configured for the Web middleware.");
     error.code = "OPENAI_API_KEY_MISSING";
@@ -168,9 +213,9 @@ export async function requestPcgFromOpenAi(prompt, fetchImplementation = fetch) 
   }
 
   const lexicalIntent=analyzePrompt(prompt);
-  const response = await fetchImplementation("https://api.openai.com/v1/responses", {
+  const response = await tracker.fetch(fetchImplementation,"https://api.openai.com/v1/responses", {
     method: "POST",
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(15000),
     headers: {
       "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
       "Content-Type": "application/json"
@@ -181,11 +226,11 @@ export async function requestPcgFromOpenAi(prompt, fetchImplementation = fetch) 
       input: [
         {
           role: "developer",
-          content: "Translate the user's request into exactly one schemaVersion 3 PCGRequest JSON object. Support Dungeon/Stone/dungeon-bsp@1, Cave/Stone/cave-cellular@1, Forest/Temperate/forest-biome@1, City/Temperate/city-hybrid-wfc@1, Swamp/Wetland/swamp-biome@1, Snowfield/Arctic/snowfield-biome@1, and Desert/Arid/desert-biome@1. Swamp, Snowfield, and Desert reuse exactly generatorSettings.forest; all inactive branches must be null. Choose only a profile valid for the worldType. Use noiseOctaves 3-6 and practical biome ranges. For a normal Forest use waterThreshold 0.20 so water remains a small accent; only exceed 0.20 when the user explicitly asks for a wet, flooded, swamp-like, or water-rich forest. Disable propSettings outside Dungeon. Always emit all visualSettings and layoutSettings fields. Empty visual allowedTypes means unrestricted; density 1 and maxCount 0 mean default/unlimited. Default policy: unless the user explicitly asks to omit or reduce a category, keep every visual category at density 1/maxCount 0. A plain forest must keep all normal visual categories. Map 벚꽃/사쿠라 to trees [cherry_blossom], 활엽수 [broadleaf], 침엽수/소나무 [conifer], 버드나무 [willow], 고사목 [dead_tree], 야자수 [palm], 선인장 [cactus], 바위 to rocks [rock], 덤불 [bush], 갈대 [reeds], and 풀/꽃/식물/버섯/그루터기/통나무/가지/가시덤불 to matching groundDetails. A phrase such as '나무는 벚꽃만' restricts only trees. Interpret 없게 as density 0, 적게 as about .35, 많이 as 1. Use null specialRooms outside Dungeon. Do not explain the JSON or expose algorithms."
+          content: "Translate the user's request into exactly one schemaVersion 3 PCGRequest JSON object. Support Dungeon/Stone/dungeon-bsp@1, Cave/Stone/cave-cellular@1, Forest/Temperate/forest-biome@1, City/Temperate/city-hybrid-wfc@1, Swamp/Wetland/swamp-biome@1, Snowfield/Arctic/snowfield-biome@1, and Desert/Arid/desert-biome@1. Swamp, Snowfield, and Desert reuse exactly generatorSettings.forest; all inactive branches must be null. Choose only a profile valid for the worldType. Use noiseOctaves 3-6 and practical biome ranges. For a normal Forest use waterThreshold 0.20. When the user explicitly requests water, a lake, pond, river, stream, or wet forest, use 0.46 (0.56 for abundant water, 0.30 for little water). A normal Swamp uses 0.46. Include trees by default. Set waterThreshold 0 only when the user explicitly requests no water. Keep tree density 1 unless explicitly asked to omit or reduce trees. Disable propSettings outside Dungeon. Always emit all visualSettings and layoutSettings fields. Empty visual allowedTypes means unrestricted; density 1 and maxCount 0 mean default/unlimited. Default policy: unless the user explicitly asks to omit or reduce a category, keep every visual category at density 1/maxCount 0. A plain forest must keep all normal visual categories. Map 벚꽃/사쿠라 to trees [cherry_blossom], 활엽수 [broadleaf], 침엽수/소나무 [conifer], 버드나무 [willow], 고사목 [dead_tree], 야자수 [palm], 선인장 [cactus], 바위 to rocks [rock], 덤불 [bush], 갈대 [reeds], and 풀/꽃/식물/버섯/그루터기/통나무/가지/가시덤불 to matching groundDetails. A phrase such as '나무는 벚꽃만' restricts only trees. Interpret 없게 as density 0, 적게 as about .35, 많이 as 1. Use null specialRooms outside Dungeon. Do not explain the JSON or expose algorithms."
         },
         {
           role: "developer",
-          content: "Always emit the neutral layoutSettings compatibility value: landform None/Seeded/Medium/Medium, water Default/Seeded/Medium/Low/exclusive false, route Default/Seeded/Medium/Seeded/Low. Spatial placement requests such as a central mountain, central or crossing river, or crossing road are not supported and must not change layoutSettings. 툰드라 -> Snowfield with SparseTundra. 푸릇푸릇/울창 -> Forest with DenseForest, vegetationMinDistance about 3-4, vegetationMaxCount at least 650, and unrestricted visual categories at density 1."
+          content: "Terrain support: Forest, Swamp, Snowfield and Desert can have ONE Mountain landform. Emit layoutSettings.landform kind Mountain, placement Center/North/South/East/West/Seeded, size Small/Medium/Large, intensity Low/Medium/High. 중앙/가운데/중심 -> Center, 북쪽 -> North, 남쪽 -> South, 동쪽 -> East, 서쪽 -> West; unspecified location -> Seeded. 큰 산 -> Large/High, 작은 산 -> Small/Low, 높은 산 -> intensity High, 낮은 산/완만한 언덕 -> intensity Low. Size controls footprint; intensity controls height. Preserve normal elevationScale (background terrain), vegetation and assets when adding a mountain. A forest with a mountain remains Forest. No requested mountain or explicitly no mountain -> landform None/Seeded/Medium/Medium. City/Cave/Dungeon always use that neutral landform. Only a single mountain is supported: multiple peaks, valleys and plateaus are unsupported. Nature worlds support ONE straight river through the map center: water kind River, placement CenterNorthSouth for 남북/north-south or CenterEastWest for 동서/east-west, size Small/Medium/Large, meander Low, exclusive false unless water outside the river is explicitly prohibited. An unspecified river direction defaults to CenterNorthSouth. Preserve the biome water threshold for explicit rivers unless the user gives a threshold. Other water layouts remain Default/Seeded/Medium/Low/exclusive false. Always keep route Default/Seeded/Medium/Seeded/Low. Off-center rivers, specified lakes and roads remain unsupported. 툰드라 -> Snowfield with SparseTundra. 푸릇푸릇/울창 -> Forest with DenseForest, vegetationMinDistance about 3-4, vegetationMaxCount at least 650, and unrestricted visual categories at density 1."
         },
         {
           role: "developer",
@@ -211,6 +256,7 @@ export async function requestPcgFromOpenAi(prompt, fetchImplementation = fetch) 
   const body = await response.json().catch(() => {
     throw Object.assign(new Error("OpenAI returned a non-JSON response."),{code:"OPENAI_INVALID_RESPONSE"});
   });
+  tracker.received(body);
   if (!response.ok) {
     const error = new Error(body.error?.message ?? "OpenAI request failed.");
     error.code = "OPENAI_REQUEST_FAILED";
@@ -227,7 +273,8 @@ export async function requestPcgFromOpenAi(prompt, fetchImplementation = fetch) 
     error.cause = cause;
     throw error;
   }
-  return finalizePcgInterpretation(prompt, request).request;
+  return request;
+ });
 }
 
 export async function sendToCore(request, fetchImplementation = fetch) {
@@ -271,7 +318,7 @@ export async function sendToUnity(request, fetchImplementation = fetch) {
       body: JSON.stringify(request)
     });
   } catch (cause) {
-    const error = new Error("Unity Bridge is unavailable. Open the Unity project and enter Play Mode.");
+    const error = new Error("Unity 생성 서버에 연결할 수 없습니다. Unity 프로젝트에서 Play Mode를 실행해 주세요.");
     error.code = "UNITY_BRIDGE_UNAVAILABLE";
     error.cause = cause;
     throw error;
@@ -287,13 +334,22 @@ export async function sendToUnity(request, fetchImplementation = fetch) {
   return { status: response.status, payload };
 }
 
+export async function sendUnityDiagnostics(message, fetchImplementation = fetch) {
+  if(!message) return;
+  try {
+    await fetchImplementation(new URL('/pcg/diagnostics',unityEndpoint), {
+      method:'POST', headers:{'X-PCG-Diagnostics':message}, signal:AbortSignal.timeout(500)
+    });
+  } catch { /* Diagnostics must not interrupt standalone generation when Unity is offline. */ }
+}
+
 export async function sendUnitySnapshotCommand(command, fetchImplementation = fetch) {
   const endpoint = new URL(command === "save" ? "/pcg/save" : "/pcg/load", unityEndpoint);
   let response;
   try {
     response = await fetchImplementation(endpoint, { method: "POST" });
   } catch (cause) {
-    const error = new Error("Unity Bridge is unavailable. Open the Unity project and enter Play Mode.");
+    const error = new Error("Unity 생성 서버에 연결할 수 없습니다. Unity 프로젝트에서 Play Mode를 실행해 주세요.");
     error.code = "UNITY_BRIDGE_UNAVAILABLE";
     error.cause = cause;
     throw error;
@@ -354,12 +410,14 @@ function safeStaticPath(root, prefix, requestUrl, extension) {
   return resolved.startsWith(`${path.resolve(root)}${path.sep}`) ? resolved : null;
 }
 
-export function createWebServer({ requestPcg = requestPcgFromOpenAi, sendRequestToCore = sendToCore, sendRequestToUnity = sendToUnity, sendCommandToUnity = sendUnitySnapshotCommand, readHealth = readCoreHealth, v4Options = {} } = {}) {
+export function createWebServer({ requestPcg = requestCandidateFromOpenAi, sendRequestToCore = sendToCore, sendRequestToUnity = sendToUnity, sendCommandToUnity = sendUnitySnapshotCommand, sendDiagnosticsToUnity = sendUnityDiagnostics, readHealth = readCoreHealth, enableExperimentalV4 = false, v4Options = {} } = {}) {
   v4Options={resolveCache:createResolveCache(),...v4Options};
   return createServer(async (request, response) => {
+    let aiDelivery;
     try {
       const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
       if (pathname.startsWith("/api/v4/")) {
+        if(!enableExperimentalV4)return sendJson(response,410,{ok:false,code:'SPATIAL_V4_RETIRED',message:'실험용 Spatial v4 Web 경로는 폐기했습니다. /unity 화면을 사용해 주세요.'});
         try {
           if (request.method === "GET" && ["/api/v4/capabilities","/api/v4/unity-status","/api/v4/examples"].includes(pathname)) return sendJson(response,200,await handleV4(pathname,null,v4Options));
           if (request.method !== "POST" || !["/api/v4/resolve","/api/v4/new-seed","/api/v4/generate-direct","/api/v4/generate-unity"].includes(pathname)) return sendJson(response,404,{ok:false,code:"NOT_FOUND"});
@@ -370,13 +428,12 @@ export function createWebServer({ requestPcg = requestPcgFromOpenAi, sendRequest
           let body;
           try { body=await readJsonBody(request,true); } catch { return sendJson(response,400,{ok:false,code:"INVALID_JSON_BODY"}); }
           return sendJson(response,200,await handleV4(pathname,body,v4Options));
-        } catch (error) { return sendJson(response,error.status??502,{ok:false,code:error.code??"V4_PIPELINE_FAILED",message:error.message}); }
+        } catch (error) { return sendJson(response,error.status??502,{ok:false,code:error.code??"V4_PIPELINE_FAILED",message:error.message,aiDelivery:error.aiDelivery}); }
       }
       if (request.method === "GET" && pathname === "/") return sendStatic(response, path.join(publicDirectory, "index.html"), "text/html; charset=utf-8");
-      if (request.method === "GET" && pathname === "/spatial-v4") return sendStatic(response,path.join(publicDirectory,"spatial-v4.html"),"text/html; charset=utf-8");
-      if (request.method === "GET" && pathname === "/spatial-v4.js") return sendStatic(response,path.join(publicDirectory,"spatial-v4.js"),"text/javascript; charset=utf-8");
-      if (request.method === "GET" && ["/spatial-v4-world.mjs","/spatial-v4-renderer.mjs"].includes(pathname)) return sendStatic(response,path.join(publicDirectory,pathname.slice(1)),"text/javascript; charset=utf-8");
+      if (request.method === "GET" && ["/spatial-v4","/spatial-v4/"].includes(pathname)) {response.writeHead(308,{Location:'/unity'});return response.end();}
       if (request.method === "GET" && pathname === "/strict-json.mjs") return sendStatic(response,path.join(sharedDirectory,"strict-json.mjs"),"text/javascript; charset=utf-8");
+      if (request.method === "GET" && pathname === "/natural-language-status.mjs") return sendStatic(response,path.join(publicDirectory,"natural-language-status.mjs"),"text/javascript; charset=utf-8");
       if (request.method === "GET" && (pathname === "/unity" || pathname === "/unity/")) return sendStatic(response, path.join(unityPublicDirectory, "index.html"), "text/html; charset=utf-8");
       if (request.method === "GET" && pathname === "/unity/app.js") return sendStatic(response, path.join(unityPublicDirectory, "app.js"), "text/javascript; charset=utf-8");
       if (request.method === "GET" && pathname === "/unity/styles.css") return sendStatic(response, path.join(unityPublicDirectory, "styles.css"), "text/css; charset=utf-8");
@@ -415,26 +472,41 @@ export function createWebServer({ requestPcg = requestPcgFromOpenAi, sendRequest
         pcgRequest = upgradePcgRequest(body.request);
         const validationError = validatePcgRequest(pcgRequest);
         if (validationError) return sendJson(response, 400, { ok: false, code: "INVALID_PCG_REQUEST", message: validationError });
+        aiDelivery={status:'not-requested',reason:'확정 JSON으로 생성합니다.'};
       } else {
         const prompt = body.prompt;
-        if (typeof prompt !== "string" || prompt.trim().length === 0 || prompt.length > 4000) return sendJson(response, 400, { ok: false, code: "INVALID_PROMPT", message: "prompt must be non-empty and at most 4000 characters." });
-        ({request:pcgRequest,interpretation}=finalizePcgInterpretation(prompt.trim(),await requestPcg(prompt.trim())));
+        if (typeof prompt !== "string" || prompt.length > 4000) return sendJson(response, 400, { ok: false, code: "INVALID_PROMPT", message: "prompt must be a string of at most 4000 characters." });
+        let candidate,reason;
+        if(!prompt.trim()) {reason='EMPTY_PROMPT';aiDelivery={status:'not-sent',outcome:'not-sent',prompt:''};}
+        else {
+          aiDelivery={status:'unconfirmed',prompt:prompt.trim()};
+          try {candidate=await requestPcg(prompt.trim(),undefined,{onDelivery:receipt=>{aiDelivery=receipt;}});}
+          catch(error) {reason='INTERPRETATION_UNAVAILABLE';aiDelivery=error.aiDelivery??aiDelivery;}
+        }
+        ({request:pcgRequest,interpretation}=resolveNaturalDraft(prompt.trim(),candidate,{reason}));
+        aiDelivery.fallbackUsed=interpretation.fallback.used;
+        aiDelivery.fallbackReason=interpretation.fallback.reason;
+        const diagnostic=formatInterpretationDiagnostic(pcgRequest,interpretation);
+        if(diagnostic) {
+          try { await sendDiagnosticsToUnity(diagnostic); }
+          catch { /* Diagnostic delivery is independent of map generation. */ }
+        }
       }
       if (pathname === "/api/render-unity") {
         const unityResponse = await sendRequestToUnity(pcgRequest);
-        return sendJson(response, 200, { ok: true, request: pcgRequest, unityStatus: unityResponse.status, unity: unityResponse.payload });
+        return sendJson(response, 200, { ok: true, request: pcgRequest, unityStatus: unityResponse.status, unity: unityResponse.payload,aiDelivery });
       }
       if (pathname.startsWith("/api/unity/")) {
         const unityResponse = await sendRequestToUnity(pcgRequest);
-        return sendJson(response, 202, { ok: true, request: pcgRequest, interpretation, unityStatus: unityResponse.status, unity: unityResponse.payload });
+        return sendJson(response, 202, { ok: true, request: pcgRequest, unityStatus: unityResponse.status, unity: unityResponse.payload,aiDelivery });
       }
       const coreResponse = await sendRequestToCore(pcgRequest);
-      return sendJson(response, 200, { ok: true, request: pcgRequest, interpretation, world: coreResponse.world });
+      return sendJson(response, 200, { ok: true, request: pcgRequest, world: coreResponse.world,aiDelivery });
     } catch (error) {
       const status = error.code==="INVALID_PROMPT_CONSTRAINT" ? 400
         : error.code==="OPENAI_REFUSAL" ? 422
         : ["OPENAI_API_KEY_MISSING", "CORE_HOST_UNAVAILABLE", "UNITY_BRIDGE_UNAVAILABLE"].includes(error.code) ? 503 : 502;
-      return sendJson(response, status, { ok: false, code: error.code ?? "WEB_PIPELINE_ERROR", message: error.message });
+      return sendJson(response, status, { ok: false, code: error.code ?? "WEB_PIPELINE_ERROR", message: error.message,aiDelivery });
     }
   });
 }

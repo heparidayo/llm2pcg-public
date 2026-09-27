@@ -1,6 +1,7 @@
 import { defaultRequest } from "/shared/pcg-request.mjs";
 import { WorldRenderer } from "/renderer.js";
 import { summarizeGeneratedWorld } from "/world-codec.mjs";
+import {naturalLanguageNotice} from '/natural-language-status.mjs';
 
 const PROFILE_OPTIONS = {
   Dungeon: ["DefaultDungeon", "CompactDungeon", "SprawlingDungeon"],
@@ -19,8 +20,9 @@ const elements = Object.fromEntries([
   "tree-types", "building-min", "building-max", "presentation-preset", "prompt",
   "world-viewport", "viewport-placeholder", "loading-overlay", "world-badge", "badge-world", "badge-hash", "world-title",
   "world-meta", "statistics", "cell-total", "result-summary", "footer-message", "save-local", "load-local", "download-json", "copy-summary",
-  "render-unity", "unity-handoff-status"
+  "render-unity", "unity-handoff-status", "natural-status"
 ].map(id => [id, document.getElementById(id)]));
+const naturalIdleText=elements['natural-status'].textContent;
 
 initialize();
 
@@ -49,6 +51,7 @@ function wireInteractions() {
   elements["world-type"].addEventListener("change", syncWorldControls);
   elements["direct-form"].addEventListener("submit", event => { event.preventDefault(); generateDirect(); });
   elements["natural-form"].addEventListener("submit", event => { event.preventDefault(); generateNatural(); });
+  elements.prompt.addEventListener('input',()=>{if(!state.busy)elements['natural-status'].textContent=naturalIdleText;});
   document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => state.renderer?.fitCamera(button.dataset.view)));
   elements["save-local"].addEventListener("click", saveLocal);
   elements["load-local"].addEventListener("click", loadLocal);
@@ -141,13 +144,19 @@ async function generateNatural() {
 
 async function generate(endpoint, payload) {
   setBusy(true);
+  const natural=Object.hasOwn(payload,'prompt');
+  let notice='';
+  if(natural)elements['natural-status'].textContent='요청을 해석하고 맵을 생성하는 중입니다…';
   try {
     const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const body = await response.json();
+    notice=naturalLanguageNotice(body);
+    if(natural)elements['natural-status'].textContent=notice || naturalIdleText;
     if (!response.ok || !body.ok) throw Object.assign(new Error(body.message || `HTTP ${response.status}`), { code: body.code });
     await displayResult(body);
     setRuntimeStatus("ready", "독립 CoreHost 연결됨");
   } catch (error) {
+    if(natural)elements['natural-status'].textContent=[notice,'맵 생성에 실패했습니다. '+error.message].filter(Boolean).join(' ');
     elements["result-summary"].textContent = `${error.code || "GENERATION_FAILED"}\n${error.message}`;
     elements["footer-message"].textContent = "생성 실패";
     setRuntimeStatus("error", "CoreHost 또는 Web 설정 확인 필요");
@@ -176,13 +185,10 @@ async function displayResult(result) {
     ["Unity", "Not required"]
   ].map(([term, value]) => `<div><dt>${escapeHtml(term)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("");
   renderStatistics(result.world.statistics, result.world.width * result.world.height);
-  elements["result-summary"].textContent = JSON.stringify({ interpretation: result.interpretation, request: result.request, world: state.summary }, null, 2);
+  elements["result-summary"].textContent = JSON.stringify({ request: result.request, world: state.summary }, null, 2);
   elements["render-unity"].disabled = false;
   setUnityHandoffStatus("ready", `Web 결과 ${result.world.worldHash} 준비됨 · Unity Play Mode에서 전송하세요.`);
-  const warnings=result.interpretation?.warnings??[];
-  elements["footer-message"].textContent = warnings.length
-    ? warnings.map(w=>w.message).join(" ")
-    : `${result.world.worldType} generated · ${result.world.worldHash}`;
+  elements["footer-message"].textContent = `${result.world.worldType} generated · ${result.world.worldHash}`;
 }
 
 function renderStatistics(statistics, total) {
@@ -199,6 +205,7 @@ function renderStatistics(statistics, total) {
 
 function setBusy(value) {
   state.busy = value;
+  elements.prompt.disabled=value;
   elements["loading-overlay"].classList.toggle("hidden", !value);
   document.querySelectorAll(".primary-action").forEach(button => button.disabled = value);
   elements["render-unity"].disabled = value || state.unityBusy || !state.lastResult;

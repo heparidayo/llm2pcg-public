@@ -11,5 +11,7 @@ namespace Llm2Pcg.Tests.EditMode
         [Test] public void LegacyDefaults() => PcgCoreRegressionChecks.LegacyDefaults();
         [Test] public void DungeonOutcomeDiagnostics() => PcgCoreRegressionChecks.DungeonOutcomeDiagnostics();
         [Test] public void NavigableEndpoints() => PcgCoreRegressionChecks.NavigableEndpoints();
+        [Test] public void TerrainLandforms() => PcgCoreRegressionChecks.TerrainLandforms();
+        [Test] public void RiverLayouts() => PcgCoreRegressionChecks.RiverLayouts();
     }
 }

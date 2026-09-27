@@ -37,6 +37,9 @@ namespace Llm2Pcg.Generators.Forest
                 elevations[index] = QuantizeHeight(Math.Max(0f, terrain - waterThreshold) * settings.elevationScale);
             }
 
+            Llm2Pcg.Generators.Nature.LandformHeightModifier.Apply(request, tiles, elevations);
+            Llm2Pcg.Generators.Nature.RiverLayoutModifier.Apply(request, tiles, elevations);
+            bool hasLandform = request.layoutSettings.landform.kind == SpatialLayoutValues.Mountain;
             List<Int2> clearings = PoissonPoints(PcgSeed.Stage(request.seed, 220), width, height, Math.Max(6, (int)settings.clearingRadius), tiles, 7);
             EnsureTwoClearings(clearings, tiles, width, height);
             int clearingRadius = Math.Max(2, (int)(settings.clearingRadius * .28f));
@@ -45,10 +48,11 @@ namespace Llm2Pcg.Generators.Forest
             List<Edge> tree = BuildMst(clearings);
             for (int i = 0; i < tree.Count; i++)
             {
-                List<Int2> path = FindCostPath(tiles, width, height, clearings[tree[i].A], clearings[tree[i].B]);
+                List<Int2> path = FindCostPath(tiles, width, height, clearings[tree[i].A], clearings[tree[i].B], hasLandform ? elevations : null);
                 for (int p = 0; p < path.Count; p++) PaintDisk(tiles, width, height, path[p], 1, BiomeTile.Path);
             }
 
+            Llm2Pcg.Generators.Nature.RiverLayoutModifier.Apply(request, tiles, elevations);
             List<Int2> vegetation = PoissonPoints(PcgSeed.Stage(request.seed, 240), width, height, Math.Max(2, (int)vegetationDistance), tiles, settings.vegetationMaxCount);
             return new BiomeWorldData(WorldType, GeneratorVersion, width, height, request.seed, tiles, clearings[0], clearings[clearings.Count - 1], vegetation, elevations);
         }
@@ -121,7 +125,7 @@ namespace Llm2Pcg.Generators.Forest
             return result;
         }
 
-        private static List<Int2> FindCostPath(BiomeTile[] tiles, int width, int height, Int2 start, Int2 end)
+        private static List<Int2> FindCostPath(BiomeTile[] tiles, int width, int height, Int2 start, Int2 end, float[] elevations)
         {
             int count = tiles.Length; int[] cost = new int[count], previous = new int[count]; bool[] closed = new bool[count];
             for (int i = 0; i < count; i++) { cost[i] = int.MaxValue; previous[i] = -1; }
@@ -135,7 +139,9 @@ namespace Llm2Pcg.Generators.Forest
                 for (int direction = 0; direction < 4; direction++)
                 {
                     int nx = x + dx[direction], ny = y + dy[direction]; if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-                    int next = ny * width + nx; int step = tiles[next] == BiomeTile.Water ? 9 : 1; int candidate = cost[node.Index] + step;
+                    int next = ny * width + nx; int step = tiles[next] == BiomeTile.Water ? 9 : 1;
+                    if (elevations != null) step += (int)(Math.Abs(elevations[next] - elevations[node.Index]) * 4f);
+                    int candidate = cost[node.Index] + step;
                     if (candidate >= cost[next]) continue; cost[next] = candidate; previous[next] = node.Index; open.Push(new PathNode(next, candidate + Math.Abs(nx - end.X) + Math.Abs(ny - end.Y)));
                 }
             }

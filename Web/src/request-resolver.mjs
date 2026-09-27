@@ -2,6 +2,7 @@ import { randomInt, createHash } from "node:crypto";
 import { validateSchema } from "../../Shared/schema-validator.mjs";
 import { validateRequestV4, intentSchema, semanticCatalog,biomeVersions } from "../../Shared/pcg-request-v4.mjs";
 import { analyzePrompt } from "./prompt-intent.mjs";
+import { routeDefaults } from "./route-intent.mjs";
 
 export function canonicalJson(value) {
   if(value===null || typeof value!=="object") return JSON.stringify(value);
@@ -91,7 +92,7 @@ export function resolveIntent(draft, {prompt="",seedFactory=()=>randomInt(-21474
   const request={schemaVersion:4,generatorVersion:biomeVersions[worldType],resolverVersion:"pcg-resolver@1",catalogVersion:semanticCatalog.version,
     worldType,seed,mapWidth:width,mapHeight:height,
     terrain:{heightUnits:worldType==="Desert"?40:worldType==="Swamp"?16:24,noiseScale:worldType==="Desert"?40:24,octaves:4,waterLevelUnits:worldType==="Swamp"?7:0},waterMode:intent.waterMode??"Default",
-    spatialFeatures:features,route:intent.route??{mode:"None",orientation:"EastWest",widthCells:3,crossingPolicy:"BridgeIfNeeded"},
+    spatialFeatures:features,route:intent.route??{...routeDefaults},
     distributionRules:rules};
   const invalid=validateRequestV4(request);
   if(invalid) fail("INVALID_RESOLVED_REQUEST",invalid);
